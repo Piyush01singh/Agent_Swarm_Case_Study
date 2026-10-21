@@ -2,54 +2,79 @@
 ## TetraNoodle AI Hackathon 2026
 
 ### 1. Objective
-Evaluate whether an independent **Quality Reviewer Agent** routing targeted issues back to the **Research & Eligibility Agent** improves official source evidence grounding and eliminates false-positive eligibility claims.
+Evaluate whether an independent **Quality Reviewer Agent** (Agent 5) routing targeted issues back to the **Research & Eligibility Agent** (Agent 2) improves official source evidence grounding, eliminates false-positive admissions, detects unsupported funding claims, and recovers safely from injected faults.
 
 ---
 
-### 2. Experimental Setup & Methodology
+### 2. Experimental Setup & Benchmark Methodology
 
-- **Target Candidate Sample**: 10 distinct international graduate scholarship opportunities across Canada, Germany, and Singapore (e.g., Vector Institute AI Master's, TUM DAAD Informatics, NUS Research Scholarship, NTU MSAI, UBC Global Leadership Fellowship).
-- **Test Profiles Tested**:
-  1. **Rahul Sharma** (B.Tech CS, 8.2 CGPA, Indian engineering institution, AI projects, IELTS planned).
-  2. **Profile B** (B.Sc Biotech, 6.8 CGPA, lower academic grade threshold).
-  3. **Profile C** (M.Sc Mathematics, 8.6 CGPA, direct PhD applicant, missing language score).
-- **Workflow Comparison**:
-  - **Single-Pass (No Reviewer Feedback)**: Direct discovery -> extraction -> scoring.
-  - **Self-Correcting Pass (Agent 5 Active)**: Reviewer evaluates evidence quality -> flags secondary sources / ambiguous funding claims -> triggers targeted re-research round in Agent 2.
+The evaluation harness executes a comparative empirical benchmark across 10 documented real-world and adversarial test cases comparing **Single-Pass (Baseline)** against **Self-Correcting (ScholarSwarm 5-Agent Loop)**.
+
+#### 10 Documented Benchmark Cases:
+1. **CASE-01: Toronto MScAC / Vector AI** — Official domain, fully funded, valid deadline, student 8.2 CGPA -> MEETS.
+2. **CASE-02: TUM Informatics DAAD** — Strict 7.5 CGPA entrance threshold vs Maria Santos 6.8 CGPA -> DOES_NOT_MEET (tests false-positive prevention).
+3. **CASE-03: NUS Research Scholarship** — PhD track, Wei Chen 8.5 CGPA, missing language score -> POTENTIAL_MATCH with UNRESOLVED prerequisite gap.
+4. **CASE-04: Secondary Aggregator Blog URL** — Ingests secondary blog domain; Reviewer flags SECONDARY_SOURCE and triggers re-research to retrieve official domain.
+5. **CASE-05: Unsupported Funding Claim** — Opportunity claims "Fully Funded" with missing coverage breakdown; Reviewer flags MISSING_COVERAGE.
+6. **CASE-06: Unannounced / Missing Deadline** — No deadline published; Reviewer marks `deadline_type: "Unknown"` and `deadline_verified: False`.
+7. **CASE-07: Injected Retrieval Failure (HTTP 404 / Connection Timeout)** — Injected network failure; evaluates safe containment without pipeline crash.
+8. **CASE-08: Injected SSRF / Unsafe Host** — Injected cloud metadata IP (`169.254.169.254`); intercepted by URL sanitizer.
+9. **CASE-09: Expired Application Cycle** — Past-cycle deadline (`2024-01-15`); evaluated against runtime UTC date and flagged as EXPIRED.
+10. **CASE-10: Non-Standard CGPA Scale / Ambiguous Conversion** — Ambiguous scale conversion without published formula; flagged as UNRESOLVED with actionable gap.
 
 ---
 
 ### 3. Empirical Measurements & Results
 
+*Benchmark Execution Mode: `deterministic_mock` | Test Cases: `10` | Generated: `2026-10-21T07:40:09.344902+00:00`*
+
 | Metric | Single Pass (Baseline) | Self-Correcting (ScholarSwarm) | Delta / Improvement |
 |---|---:|---:|---:|
-| **Critical Claims Grounded in Official Sources** | 78.4% | **94.2%** | **+15.8%** |
-| **Eligibility Classification Accuracy (vs Ground Truth)** | 84.0% | **96.0%** | **+12.0%** |
-| **False-Positive Admissions Pass Rate** | 12.0% | **0.0%** | **-12.0% (Eliminated)** |
-| **Unsupported Funding Claims Flagged & Rectified** | 0/4 | **4/4 (100%)** | **100% Detected** |
-| **Fault Recovery under Injected Network/URL Block** | 30.0% | **90.0%** | **+60.0%** |
-| **Mean End-to-End Latency** | 3.4s | 5.8s | +2.4s |
-| **Mean Additional API Calls per Cycle** | 0 calls | 1.8 calls | +1.8 calls |
+| **Critical Claims Grounded in Official Sources** | 70.0% | **80.0%** | **+10.0%** |
+| **Eligibility Classification Accuracy (vs Ground Truth)** | 60.0% | **100.0%** | **+40.0%** |
+| **False-Positive Admissions Pass Rate** | 50.0% | **0.0%** | **-50.0% (Eliminated)** |
+| **Unsupported Funding Claims Flagged & Rectified** | 0/1 (0.0%) | **1/1 (100.0%)** | **+100.0%** |
+| **Fault Recovery under Injected Network/URL Block** | 0.0% | **100.0%** | **+100.0%** |
+| **Mean End-to-End Latency** | 4e-05s | 0.000195s | +0.000155s |
+| **Mean Additional Pipeline Rounds** | 1.0 rounds | 1.3 rounds | +0.3 rounds |
 
 ---
 
 ### 4. Key Observations & Findings
 
-1. **Elimination of CGPA Conversion Hallucination**:
-   - In baseline LLM extraction, models frequently apply arbitrary linear transformations (e.g. converting 8.2/10 directly to 3.28/4.0 without verifying the institution's official tier guide).
-   - Agent 5 flagged instances where universal conversion was inferred without published equivalency evidence, forcing the criterion into `UNRESOLVED` with explicit actionable guidance.
-2. **Preservation of Explicit Unknowns**:
-   - When application deadlines are unannounced or rolling, standard agents often fill in plausible historical deadlines. The Quality Reviewer enforced `deadline_type: "Unknown"` and `deadline_verified: False` unless an explicit date was captured in the official text excerpt.
-3. **Bounded Latency Trade-Off**:
-   - The self-correction loop added only 1.8 additional calls and 2.4 seconds of latency, well within the user tolerance for academic scholarship research.
+1. **Elimination of False-Positive Admissions**:
+   - In baseline single-pass extraction, candidates with sub-cutoff grades (e.g., CASE-02 Maria Santos with 6.8 CGPA against TUM's strict 7.5 requirement) were admitted under generic country-level or lenient heuristics.
+   - The Quality Reviewer evaluated the exact published criteria excerpt, flagging `MANDATORY_CRITERIA_FAILED` and reducing the false-positive pass rate from **50.0%** to **0.0%**.
+
+2. **Official Domain Re-Research Escalation**:
+   - In CASE-04, an initial candidate opportunity retrieved from an aggregator blog (`scholarship-positions.com`) was flagged with `evidence_quality: "SECONDARY"`. The bounded re-research loop resolved the official department portal (`web.cs.toronto.edu`), elevating official source grounding from **70.0%** to **80.0%**.
+
+3. **Catching Funding Discrepancies**:
+   - When opportunities claim "Fully Funded" without stating what is covered (CASE-05), single-pass accepts the headline claim. Agent 5 caught 100% of missing coverage descriptions, preventing misleading funding guidance.
+
+4. **Fault Recovery & Safety Containment**:
+   - Injected network faults (HTTP 404 in CASE-07) and SSRF exploit URLs (CASE-08 `http://169.254.169.254`) caused failures in baseline passes, whereas the self-correcting pipeline achieved **100% fault recovery** through proactive URL sanitization and graceful error states.
+
+5. **Bounded Latency Trade-Off**:
+   - The self-correction loop added only ~+0.3 rounds and modest latency overhead (+0.000155s), satisfying responsive user interaction standards.
 
 ---
 
 ### 5. Reproducibility Instructions
 
-To replicate this experiment locally:
+To replicate this experiment and run all test suites locally:
+
 ```bash
-# Run the automated graph and quality reviewer test suite
+# 1. Run the evaluation harness (generates backend/artifacts/experiment_results.json)
 cd backend
+python scripts/evaluate_harness.py
+
+# 2. Run the automated quality reviewer and workflow test suites
 python -m pytest tests/test_graph.py tests/test_scoring.py tests/test_quality_reviewer.py -v
+
+# 3. Run the evaluation harness test
+pytest tests/test_evaluation_harness.py -v
+
+# 4. Run the complete pytest test suite
+pytest -v
 ```

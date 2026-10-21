@@ -36,6 +36,7 @@ class Opportunity(BaseModel):
     deadline: Optional[str] = None
     deadline_type: str = "Unknown" # "Fixed", "Rolling", "Priority", "Unknown"
     deadline_verified: bool = False
+    deadline_status: str = "UNKNOWN" # "ACTIVE", "EXPIRED", "ROLLING", "UNKNOWN"
     
     official_application_url: Optional[str] = None
     official_source_urls: List[str] = Field(default_factory=list)

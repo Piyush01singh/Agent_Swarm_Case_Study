@@ -43,7 +43,7 @@ export const EvidenceDrawer: React.FC<EvidenceDrawerProps> = ({
             <span className="text-slate-400 font-semibold">Evidence Quality Tier:</span>
             <span className="font-bold text-emerald-400 flex items-center gap-1">
               <ShieldCheck className="h-3.5 w-3.5" />
-              {opportunity.evidence_quality || 'OFFICIAL'}
+              {opportunity.evidence_quality || 'UNVERIFIED'}
             </span>
           </div>
           <div className="flex items-center justify-between text-xs">

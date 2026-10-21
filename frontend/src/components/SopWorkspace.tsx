@@ -14,30 +14,38 @@ export const SopWorkspace: React.FC<SopWorkspaceProps> = ({
   runId,
   onClose,
 }) => {
-  if (!opportunity) return null;
-
   const [draft, setDraft] = useState<ApplicationDraft | null>(null);
   const [content, setContent] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const userNotes = "";
 
-  const loadDraft = async () => {
-    setIsLoading(true);
-    try {
-      const generated = await generateSopDraft(opportunity.id, runId, userNotes);
-      setDraft(generated);
-      setContent(generated.sop_content);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadDraft();
-  }, [opportunity.id]);
+    if (!opportunity) return;
+    let cancelled = false;
+
+    generateSopDraft(opportunity.id, runId, userNotes)
+      .then((generated) => {
+        if (!cancelled) {
+          setDraft(generated);
+          setContent(generated.sop_content);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to generate SOP draft:", err);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [opportunity, runId]);
+
+  if (!opportunity) return null;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content);

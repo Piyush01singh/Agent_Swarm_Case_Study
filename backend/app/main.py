@@ -1,17 +1,32 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.health import router as health_router
 from app.api.profile import router as profile_router
 from app.api.research import router as research_router
 from app.api.opportunities import router as opportunities_router
+from app.services.gemini_service import GeminiConfigurationError
 
 app = FastAPI(
     title="ScholarSwarm API",
     description="Multi-Agent International Academic Scholarship Intelligence Engine — TetraNoodle AI Hackathon 2026",
     version="1.0.0"
 )
+
+@app.exception_handler(GeminiConfigurationError)
+async def gemini_configuration_exception_handler(request: Request, exc: GeminiConfigurationError):
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": 503,
+            "error": "GeminiConfigurationError",
+            "detail": str(exc),
+            "help": "Set the GEMINI_API_KEY environment variable to enable live Gemini discovery and extraction."
+        }
+    )
+
 
 # CORS Configuration
 # Free-tier & production security: Allow configured frontend origins

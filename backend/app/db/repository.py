@@ -1,6 +1,6 @@
 import uuid
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from app.db.supabase_client import get_supabase_client
 from app.models.events import ResearchRun, AgentEvent
 from app.models.opportunity import Opportunity
@@ -210,10 +210,52 @@ class Repository:
         if client:
             try:
                 res = client.table("opportunities").select("*").eq("id", opp_id).execute()
-                if res.data:
-                    return (await self.get_opportunities(res.data[0]["run_id"]))[0]
-            except Exception:
-                pass
+                if res.data and len(res.data) > 0:
+                    row = res.data[0]
+                    run_id = row.get("run_id")
+                    if run_id:
+                        opps = await self.get_opportunities(run_id)
+                        for opp in opps:
+                            if opp.id == opp_id:
+                                return opp
+                    # Direct deserialization fallback
+                    from app.models.opportunity import FundingDetails, MatchScore
+                    funding = FundingDetails(
+                        funding_type=row.get("funding_type", "Unknown"),
+                        coverage_description=row.get("funding_coverage", "TBD"),
+                        amount=row.get("funding_amount"),
+                        currency=row.get("funding_currency")
+                    )
+                    score = MatchScore(**row.get("match_breakdown", {})) if row.get("match_breakdown") else None
+                    opp = Opportunity(
+                        id=row["id"],
+                        run_id=row.get("run_id", ""),
+                        canonical_url=row["canonical_url"],
+                        title=row["title"],
+                        program_name=row["program_name"],
+                        university=row["university"],
+                        country=row["country"],
+                        degree_level=row["degree_level"],
+                        field=row["field"],
+                        intake=row.get("intake"),
+                        funding_details=funding,
+                        deadline=row.get("deadline"),
+                        deadline_type=row.get("deadline_type", "Unknown"),
+                        deadline_verified=row.get("deadline_verified", False),
+                        official_application_url=row.get("official_application_url"),
+                        official_source_urls=row.get("official_source_urls", []),
+                        evidence_quality=row.get("evidence_quality", "UNVERIFIED"),
+                        eligibility_status=row.get("eligibility_status", "INSUFFICIENT_EVIDENCE"),
+                        eligibility_reasons=row.get("eligibility_reasons", []),
+                        match_score=score,
+                        is_top_five=row.get("is_top_five", False),
+                        reviewer_status=row.get("reviewer_status", "PENDING"),
+                        reviewer_notes=row.get("reviewer_notes")
+                    )
+                    _memory_opportunities[opp.id] = opp
+                    return opp
+            except Exception as e:
+                print(f"Supabase get_opportunity_by_id error: {e}")
         return None
 
     async def save_evidence_records(self, records: List[EvidenceRecord]):
@@ -222,10 +264,116 @@ class Repository:
                 r.id = str(uuid.uuid4())
             if r.opportunity_id not in _memory_evidence:
                 _memory_evidence[r.opportunity_id] = []
-            _memory_evidence[r.opportunity_id].append(r)
+            existing_ids = {item.id for item in _memory_evidence[r.opportunity_id]}
+            if r.id not in existing_ids:
+                _memory_evidence[r.opportunity_id].append(r)
+
+        client = get_supabase_client()
+        if client:
+            try:
+                rows = []
+                for r in records:
+                    rows.append({
+                        "id": r.id,
+                        "opportunity_id": r.opportunity_id,
+                        "run_id": r.run_id,
+                        "criterion_name": r.criterion_name,
+                        "stated_requirement": r.stated_requirement,
+                        "student_value": r.student_value,
+                        "status": r.status,
+                        "evidence_excerpt": r.evidence_excerpt,
+                        "source_title": r.source_title,
+                        "source_url": r.source_url,
+                        "source_category": r.source_category,
+                        "checked_at": r.checked_at.isoformat() if hasattr(r.checked_at, "isoformat") else str(r.checked_at),
+                        "uncertainty_or_conflict": r.uncertainty_or_conflict
+                    })
+                if rows:
+                    client.table("evidence_records").upsert(rows).execute()
+            except Exception as e:
+                print(f"Supabase evidence_records upsert error: {e}")
 
     async def get_evidence_for_opportunity(self, opp_id: str) -> List[EvidenceRecord]:
+        if opp_id in _memory_evidence and _memory_evidence[opp_id]:
+            return _memory_evidence[opp_id]
+        client = get_supabase_client()
+        if client:
+            try:
+                res = client.table("evidence_records").select("*").eq("opportunity_id", opp_id).execute()
+                if res.data:
+                    records = []
+                    for row in res.data:
+                        checked_at_val = row.get("checked_at")
+                        parsed_checked = datetime.fromisoformat(checked_at_val.replace("Z", "+00:00")) if checked_at_val else datetime.now(timezone.utc)
+                        rec = EvidenceRecord(
+                            id=row.get("id"),
+                            opportunity_id=row.get("opportunity_id"),
+                            run_id=row.get("run_id"),
+                            criterion_name=row.get("criterion_name", ""),
+                            stated_requirement=row.get("stated_requirement", ""),
+                            student_value=row.get("student_value"),
+                            status=row.get("status", "UNRESOLVED"),
+                            evidence_excerpt=row.get("evidence_excerpt"),
+                            source_title=row.get("source_title"),
+                            source_url=row.get("source_url", ""),
+                            source_category=row.get("source_category", "OFFICIAL"),
+                            checked_at=parsed_checked,
+                            uncertainty_or_conflict=row.get("uncertainty_or_conflict")
+                        )
+                        records.append(rec)
+                    _memory_evidence[opp_id] = records
+                    return records
+            except Exception as e:
+                print(f"Supabase get evidence error: {e}")
         return _memory_evidence.get(opp_id, [])
+
+    async def get_evidence_records(
+        self,
+        run_id: Optional[str] = None,
+        opportunity_id: Optional[str] = None
+    ) -> List[EvidenceRecord]:
+        """Loads evidence records filtered by opportunity_id or run_id."""
+        if opportunity_id:
+            return await self.get_evidence_for_opportunity(opportunity_id)
+        
+        if run_id:
+            matched: List[EvidenceRecord] = []
+            for records_list in _memory_evidence.values():
+                for rec in records_list:
+                    if rec.run_id == run_id and rec not in matched:
+                        matched.append(rec)
+            if matched:
+                return matched
+
+            client = get_supabase_client()
+            if client:
+                try:
+                    res = client.table("evidence_records").select("*").eq("run_id", run_id).execute()
+                    if res.data:
+                        records = []
+                        for row in res.data:
+                            checked_at_val = row.get("checked_at")
+                            parsed_checked = datetime.fromisoformat(checked_at_val.replace("Z", "+00:00")) if checked_at_val else datetime.now(timezone.utc)
+                            rec = EvidenceRecord(
+                                id=row.get("id"),
+                                opportunity_id=row.get("opportunity_id"),
+                                run_id=row.get("run_id"),
+                                criterion_name=row.get("criterion_name", ""),
+                                stated_requirement=row.get("stated_requirement", ""),
+                                student_value=row.get("student_value"),
+                                status=row.get("status", "UNRESOLVED"),
+                                evidence_excerpt=row.get("evidence_excerpt"),
+                                source_title=row.get("source_title"),
+                                source_url=row.get("source_url", ""),
+                                source_category=row.get("source_category", "OFFICIAL"),
+                                checked_at=parsed_checked,
+                                uncertainty_or_conflict=row.get("uncertainty_or_conflict")
+                            )
+                            records.append(rec)
+                        return records
+                except Exception as e:
+                    print(f"Supabase get_evidence_records by run_id error: {e}")
+        return []
 
     async def save_agent_event(self, event: AgentEvent):
         if not event.id:

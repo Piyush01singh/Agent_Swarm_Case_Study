@@ -38,7 +38,7 @@ export const GapPlanner: React.FC<GapPlannerProps> = ({ opportunities }) => {
             <span>No unresolved eligibility gaps found. Profile fully satisfies mandatory stated criteria across opportunities!</span>
           </div>
         ) : (
-          allGaps.slice(0, 5).map((item, idx) => (
+          allGaps.map((item, idx) => (
             <div
               key={idx}
               className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 flex items-start gap-3 text-xs"

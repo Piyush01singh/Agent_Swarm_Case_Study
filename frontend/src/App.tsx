@@ -9,7 +9,7 @@ import {
   Code2
 } from 'lucide-react';
 import type { StudentProfile, Opportunity, AgentEvent } from './types';
-import { checkHealth, startResearch, getOpportunities, subscribeToEvents, resetDemoData } from './api/client';
+import { checkHealth, startResearch, getOpportunities, subscribeToEvents, resetDemoData, getOpportunityDetails } from './api/client';
 import { Navbar } from './components/Navbar';
 import { ProfileModal } from './components/ProfileModal';
 import { AgentWorkspace } from './components/AgentWorkspace';
@@ -114,6 +114,18 @@ export const App: React.FC = () => {
     } catch (err: any) {
       alert(`Research cycle initiation failed: ${err.message}`);
       setCurrentPhase("ERROR");
+    }
+  };
+
+  const handleViewEvidence = async (opportunity: Opportunity) => {
+    setSelectedEvidenceOpp(opportunity);
+    if (!opportunity.evidence_records || opportunity.evidence_records.length === 0) {
+      try {
+        const fullDetails = await getOpportunityDetails(opportunity.id);
+        setSelectedEvidenceOpp(fullDetails);
+      } catch (err) {
+        console.error("Failed to fetch full opportunity evidence details:", err);
+      }
     }
   };
 
@@ -267,7 +279,7 @@ export const App: React.FC = () => {
                   <OpportunityCard
                     key={opp.id}
                     opportunity={opp}
-                    onViewEvidence={(o) => setSelectedEvidenceOpp(o)}
+                    onViewEvidence={handleViewEvidence}
                     onGenerateSop={(o) => setSelectedSopOpp(o)}
                   />
                 ))}
@@ -286,7 +298,7 @@ export const App: React.FC = () => {
                   <OpportunityCard
                     key={opp.id}
                     opportunity={opp}
-                    onViewEvidence={(o) => setSelectedEvidenceOpp(o)}
+                    onViewEvidence={handleViewEvidence}
                     onGenerateSop={(o) => setSelectedSopOpp(o)}
                   />
                 ))}

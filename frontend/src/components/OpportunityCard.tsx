@@ -141,7 +141,7 @@ export const OpportunityCard: React.FC<OpportunityCardProps> = ({
             className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center gap-1 transition"
           >
             <ShieldCheck className="h-3.5 w-3.5 text-cyan-400" />
-            Evidence ({opportunity.evidence_records?.length || 3})
+            Evidence ({opportunity.evidence_records?.length ?? 0})
           </button>
 
           <button

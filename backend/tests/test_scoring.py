@@ -21,7 +21,7 @@ def test_scoring_weights_and_dimensions():
             coverage_description="Full funding package",
             tuition_covered=True
         ),
-        deadline="2025-12-01",
+        deadline="2026-12-01",
         deadline_type="Fixed",
         deadline_verified=True,
         evidence_quality="OFFICIAL",

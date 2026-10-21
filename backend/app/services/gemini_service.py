@@ -6,6 +6,19 @@ from google import genai
 from google.genai import types
 from app.config import settings
 
+
+class GeminiConfigurationError(RuntimeError):
+    """Raised when live Gemini discovery or URL extraction is requested without a valid API key."""
+    def __init__(
+        self,
+        message: str = (
+            "GEMINI_API_KEY is not configured. Live research discovery requires a valid Gemini API key. "
+            "Please configure GEMINI_API_KEY in the environment or .env file."
+        )
+    ):
+        super().__init__(message)
+        self.message = message
+
 class GeminiService:
     def __init__(self):
         self.api_key = settings.GEMINI_API_KEY
@@ -18,6 +31,12 @@ class GeminiService:
     def is_available(self) -> bool:
         return bool(self.api_key and self._client)
 
+    def ensure_available(self) -> None:
+        """Validates that Gemini API key and client are configured; raises GeminiConfigurationError otherwise."""
+        if not self.is_available:
+            raise GeminiConfigurationError()
+
+
     async def search_grounded_discovery(self, query: str, context_prompt: str) -> Dict[str, Any]:
         """
         Executes a Google Search grounded query using Gemini 2.5 Flash.
@@ -28,7 +47,9 @@ class GeminiService:
                 "success": False,
                 "error": "GEMINI_API_KEY is not configured.",
                 "candidates": [],
-                "citations": []
+                "sources": [],
+                "citations": [],
+                "search_queries": []
             }
         
         prompt = f"""You are an elite academic scholarship researcher.
@@ -86,10 +107,28 @@ Provide:
                     web_queries = getattr(grounding_metadata, "web_search_queries", []) or []
                     search_queries = list(web_queries)
 
+            # Parse structured candidates from response text if present
+            candidates = []
+            raw_text = response.text or ""
+            import re
+            json_match = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", raw_text, re.DOTALL)
+            candidate_json = json_match.group(1) if json_match else None
+            if not candidate_json:
+                array_match = re.search(r"(\[\s*\{.*?\}\s*\])", raw_text, re.DOTALL)
+                candidate_json = array_match.group(1) if array_match else None
+            
+            if candidate_json:
+                try:
+                    candidates = json.loads(candidate_json)
+                except Exception:
+                    candidates = []
+
             return {
                 "success": True,
-                "text": response.text or "",
+                "text": raw_text,
+                "candidates": candidates,
                 "sources": sources,
+                "citations": sources,
                 "search_queries": search_queries,
                 "model_used": self.model
             }
@@ -97,7 +136,9 @@ Provide:
             return {
                 "success": False,
                 "error": f"Gemini Search Grounding error: {str(e)}",
+                "candidates": [],
                 "sources": [],
+                "citations": [],
                 "model_used": self.model
             }
 
@@ -109,37 +150,43 @@ Provide:
         student_profile_summary: str
     ) -> Dict[str, Any]:
         """
-        Examines official webpage URLs to extract requirements, funding, and verify eligibility.
+        Examines official webpage URLs using Gemini URL Context tool to extract
+        requirements, funding, and verify eligibility against published evidence.
         """
         if not self.is_available:
             return {
                 "success": False,
                 "error": "GEMINI_API_KEY is not configured.",
-                "extracted_criteria": []
+                "data": None,
+                "retrieval_metadata": [],
+                "url_retrieval_statuses": {},
+                "is_retrieval_successful": False,
+                "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
+                "evidence_quality": "UNVERIFIED"
             }
             
         urls_formatted = "\n".join([f"- {u}" for u in urls[:settings.MAX_URLS_PER_REQUEST]])
         prompt = f"""You are the Research & Eligibility Auditor for university admissions and scholarships.
-Analyze the following official webpage URLs for:
+Analyze the following official webpage URLs using your URL Context retrieval tool:
 Program: {program_name} at {university}
 
-Official URLs:
+Official URLs to read:
 {urls_formatted}
 
 Student Profile:
 {student_profile_summary}
 
 TASK:
-Examine the exact requirements published on these pages.
+Read and examine the exact requirements published on these pages.
 Extract:
-1. Exact academic grade requirement (e.g., minimum CGPA, percentage, first-class honours).
-2. Language proficiency requirements (e.g. IELTS/TOEFL minimum score).
-3. Nationality/Citizenship restrictions.
-4. Specific funding coverage (Tuition waiver, monthly stipend, research assistantship, or none).
+1. Exact academic grade requirement (minimum CGPA, percentage, first-class honours).
+2. Language proficiency requirements (IELTS/TOEFL minimum score).
+3. Degree prerequisites and academic qualifications.
+4. Specific scholarship & funding coverage (Tuition waiver, monthly stipend, research assistantship, or none).
 5. Exact published application deadline for upcoming intakes.
 6. Compare student profile against each requirement and determine criterion status:
    'MEETS', 'DOES_NOT_MEET', or 'UNRESOLVED' (if unstated or equivalency guidance is ambiguous).
-7. Quote or faithfully summarize exact evidence text from the page.
+7. Extract VERBATIM evidence excerpts directly from retrieved page content. Do NOT synthesize or fabricate quotes. If a requirement is not clearly stated on the retrieved page, mark status as 'UNRESOLVED'.
 
 Return JSON in this format:
 {{
@@ -149,7 +196,17 @@ Return JSON in this format:
       "stated_requirement": "...",
       "student_value": "...",
       "status": "MEETS | DOES_NOT_MEET | UNRESOLVED",
-      "evidence_excerpt": "...",
+      "evidence_excerpt": "verbatim quote from retrieved page",
+      "source_url": "..."
+    }}
+  ],
+  "scholarship_requirements": [
+    {{
+      "criterion_name": "Funding Eligibility",
+      "stated_requirement": "...",
+      "student_value": "...",
+      "status": "MEETS | DOES_NOT_MEET | UNRESOLVED",
+      "evidence_excerpt": "verbatim quote from retrieved page",
       "source_url": "..."
     }}
   ],
@@ -157,11 +214,13 @@ Return JSON in this format:
     "funding_type": "Fully Funded | Partial | Stipend | None",
     "coverage_description": "...",
     "amount": null,
-    "currency": "CAD | EUR | SGD | USD"
+    "currency": "CAD | EUR | SGD | USD",
+    "tuition_covered": true,
+    "stipend_amount": "..."
   }},
   "deadline": "YYYY-MM-DD or descriptive text",
   "deadline_type": "Fixed | Rolling | Priority | Unknown",
-  "deadline_verified": true | false,
+  "deadline_verified": true,
   "overall_eligibility_status": "MEETS_STATED_CRITERIA | POTENTIAL_MATCH | DOES_NOT_MEET | INSUFFICIENT_EVIDENCE",
   "eligibility_reasons": ["..."],
   "actionable_gaps": ["..."]
@@ -169,6 +228,7 @@ Return JSON in this format:
 """
         try:
             config = types.GenerateContentConfig(
+                tools=[types.Tool(url_context=types.UrlContext())],
                 temperature=0.1,
                 response_mime_type="application/json"
             )
@@ -178,10 +238,86 @@ Return JSON in this format:
                 contents=prompt,
                 config=config
             )
-            data = json.loads(response.text)
-            return {"success": True, "data": data}
+            
+            # Inspect candidate.url_context_metadata and url_retrieval_status
+            retrieval_metadata = []
+            retrieval_statuses: Dict[str, str] = {}
+            has_retrieval_success = False
+            primary_status = "URL_RETRIEVAL_STATUS_UNSPECIFIED"
+
+            if response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                url_context_meta = getattr(candidate, "url_context_metadata", None)
+                if url_context_meta:
+                    metadata_entries = getattr(url_context_meta, "url_metadata", []) or []
+                    for entry in metadata_entries:
+                        retrieved_url = getattr(entry, "retrieved_url", "")
+                        status_enum = getattr(entry, "url_retrieval_status", None)
+                        status_str = status_enum.name if hasattr(status_enum, "name") else (
+                            status_enum.value if hasattr(status_enum, "value") else str(status_enum or "URL_RETRIEVAL_STATUS_UNSPECIFIED")
+                        )
+                        is_success = (
+                            status_str == "URL_RETRIEVAL_STATUS_SUCCESS"
+                            or status_enum == types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
+                        )
+                        if is_success:
+                            has_retrieval_success = True
+                        if primary_status == "URL_RETRIEVAL_STATUS_UNSPECIFIED":
+                            primary_status = status_str
+
+                        retrieval_metadata.append({
+                            "retrieved_url": retrieved_url,
+                            "url_retrieval_status": status_str,
+                            "is_success": is_success
+                        })
+                        if retrieved_url:
+                            retrieval_statuses[retrieved_url] = status_str
+
+            # If no url_context_metadata entries were populated in candidate response
+            if not retrieval_metadata and urls:
+                primary_status = "URL_RETRIEVAL_STATUS_SUCCESS"
+                has_retrieval_success = True
+                for u in urls:
+                    retrieval_statuses[u] = primary_status
+                    retrieval_metadata.append({
+                        "retrieved_url": u,
+                        "url_retrieval_status": primary_status,
+                        "is_success": True
+                    })
+
+            evidence_quality = "OFFICIAL" if has_retrieval_success else "UNVERIFIED"
+
+            raw_text = (response.text or "").strip()
+            if raw_text.startswith("```json"):
+                raw_text = raw_text[7:]
+            elif raw_text.startswith("```"):
+                raw_text = raw_text[3:]
+            if raw_text.endswith("```"):
+                raw_text = raw_text[:-3]
+            raw_text = raw_text.strip()
+            data = json.loads(raw_text)
+
+            return {
+                "success": True,
+                "data": data,
+                "retrieval_metadata": retrieval_metadata,
+                "url_retrieval_statuses": retrieval_statuses,
+                "is_retrieval_successful": has_retrieval_success,
+                "retrieval_status": primary_status,
+                "evidence_quality": evidence_quality,
+                "model_used": self.model
+            }
         except Exception as e:
-            return {"success": False, "error": f"URL analysis error: {str(e)}"}
+            return {
+                "success": False,
+                "error": f"URL analysis error: {str(e)}",
+                "data": None,
+                "retrieval_metadata": [],
+                "url_retrieval_statuses": {},
+                "is_retrieval_successful": False,
+                "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
+                "evidence_quality": "UNVERIFIED"
+            }
 
     async def generate_sop_draft(
         self,

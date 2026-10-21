@@ -1,9 +1,14 @@
-from typing import Tuple
+from typing import Tuple, Optional, List
+from datetime import datetime, timezone, date
 from app.models.profile import StudentProfile
 from app.models.opportunity import Opportunity
 from app.models.evidence import MatchScore
 
-def calculate_match_score(profile: StudentProfile, opportunity: Opportunity) -> MatchScore:
+def calculate_match_score(
+    profile: StudentProfile,
+    opportunity: Opportunity,
+    as_of_date: Optional[date] = None
+) -> MatchScore:
     """
     Computes a deterministic match score (0-100) based on five dimensions:
     1. Academic and eligibility fit (max 35)
@@ -12,14 +17,51 @@ def calculate_match_score(profile: StudentProfile, opportunity: Opportunity) -> 
     4. Deadline and application readiness (max 10)
     5. Evidence quality and freshness (max 10)
     
-    Hard disqualifiers set `is_eligible_for_shortlist = False`.
+    Hard disqualifiers (unmet mandatory admission criteria or expired deadlines)
+    set `is_eligible_for_shortlist = False`.
     """
-    # 0. Check mandatory eligibility disqualifiers
+    # 0. Check mandatory eligibility disqualifiers (Feature F8: Admission vs Scholarship)
     has_mandatory_failure = False
+    
+    # Check admission requirements
+    for req in opportunity.admission_requirements:
+        if req.is_mandatory:
+            for ev in opportunity.evidence_records:
+                if ev.criterion_name == req.criterion_type or req.requirement_text in ev.stated_requirement:
+                    if ev.status == "DOES_NOT_MEET":
+                        has_mandatory_failure = True
+                        break
+
+    # Check evidence records directly, ensuring optional scholarship criteria do NOT cause mandatory failure
     for ev in opportunity.evidence_records:
         if ev.status == "DOES_NOT_MEET":
-            has_mandatory_failure = True
-            break
+            is_scholarship = (
+                "scholarship" in (ev.criterion_name or "").lower()
+                or (ev.source_title and "scholarship" in ev.source_title.lower())
+                or any(
+                    (sch.requirement_text in ev.stated_requirement or ev.stated_requirement in sch.requirement_text)
+                    for sch in opportunity.scholarship_requirements
+                )
+            )
+            if is_scholarship:
+                continue
+
+            crit_text = f"{ev.criterion_name} {ev.stated_requirement}".lower()
+            is_mandatory_prereq = (
+                not opportunity.admission_requirements
+                or any(
+                    req.is_mandatory and (
+                        req.criterion_type in ev.criterion_name
+                        or req.requirement_text in ev.stated_requirement
+                        or ev.stated_requirement in req.requirement_text
+                    )
+                    for req in opportunity.admission_requirements
+                )
+                or any(k in crit_text for k in ["admission", "gpa", "cgpa", "grade", "ielts", "toefl", "language", "degree", "prerequisite", "entrance"])
+            )
+            if is_mandatory_prereq:
+                has_mandatory_failure = True
+                break
             
     if opportunity.eligibility_status == "DOES_NOT_MEET":
         has_mandatory_failure = True
@@ -86,20 +128,49 @@ def calculate_match_score(profile: StudentProfile, opportunity: Opportunity) -> 
         subject_score += 4.0
     subject_score = min(20.0, subject_score)
 
-    # Dimension 4: Deadline and Application Readiness (10 points)
-    deadline_score = 0.0
-    if opportunity.deadline_verified:
-        deadline_score += 6.0
-        if opportunity.deadline_type in ("Fixed", "Rolling"):
-            deadline_score += 4.0
+    # Dimension 4: Deadline and Application Readiness (10 points - Feature F9)
+    now_utc = as_of_date or datetime.now(timezone.utc).date()
+    deadline_status = getattr(opportunity, "deadline_status", None)
+    d_type = (opportunity.deadline_type or "").strip().lower()
+    d_str = (opportunity.deadline or "").strip()
+
+    if not deadline_status or deadline_status == "UNKNOWN":
+        if d_type == "rolling" or d_str.lower() == "rolling":
+            deadline_status = "ROLLING"
+        elif not d_str:
+            deadline_status = "UNKNOWN"
         else:
-            deadline_score += 2.0
-    elif opportunity.deadline:
-        deadline_score += 4.0
-    else:
-        # Unknown deadline
-        deadline_score += 2.0
-    deadline_score = min(10.0, deadline_score)
+            try:
+                parsed_d = datetime.strptime(d_str, "%Y-%m-%d").date()
+                if parsed_d < now_utc:
+                    deadline_status = "EXPIRED"
+                else:
+                    deadline_status = "ACTIVE"
+            except ValueError:
+                deadline_status = "UNKNOWN"
+        try:
+            object.__setattr__(opportunity, "deadline_status", deadline_status)
+        except Exception:
+            pass
+
+    deadline_score = 0.0
+    if deadline_status == "EXPIRED":
+        # Do NOT award deadline readiness score to expired deadlines
+        deadline_score = 0.0
+    elif deadline_status == "ACTIVE":
+        if opportunity.deadline_verified:
+            deadline_score = 10.0
+        else:
+            deadline_score = 6.0
+    elif deadline_status == "ROLLING":
+        if opportunity.deadline_verified:
+            deadline_score = 10.0
+        else:
+            deadline_score = 8.0
+    else: # UNKNOWN
+        deadline_score = 2.0
+
+    deadline_score = min(10.0, max(0.0, deadline_score))
 
     # Dimension 5: Evidence Quality and Freshness (10 points)
     evidence_score = 0.0
@@ -113,11 +184,18 @@ def calculate_match_score(profile: StudentProfile, opportunity: Opportunity) -> 
         evidence_score = 1.0
 
     total = round(academic_score + funding_score + subject_score + deadline_score + evidence_score, 1)
-    is_eligible = not has_mandatory_failure
+    
+    # Eligibility check: mandatory admission passed AND not expired
+    is_eligible = not has_mandatory_failure and deadline_status != "EXPIRED"
 
     # Generate explanatory summary
     reasons = []
-    if is_eligible:
+    if deadline_status == "EXPIRED":
+        reasons.append("Application deadline has passed (EXPIRED); cycle closed")
+    
+    if has_mandatory_failure:
+        reasons.append("Disqualified from shortlist due to unmet mandatory admission or scholarship criteria")
+    elif is_eligible:
         if academic_score >= 30:
             reasons.append("Strong academic qualification and eligibility alignment")
         elif academic_score >= 20:
@@ -128,8 +206,6 @@ def calculate_match_score(profile: StudentProfile, opportunity: Opportunity) -> 
             reasons.append(f"High relevance to student's {profile.target_degree} goals in {opportunity.field}")
         if not reasons:
             reasons.append("General alignment with stated student profile preferences")
-    else:
-        reasons.append("Disqualified from shortlist due to unmet mandatory admission or scholarship criteria")
 
     explanation = "; ".join(reasons)
 
