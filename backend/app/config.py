@@ -1,9 +1,23 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Locate backend/.env and repo .env, prioritizing backend/.env
+_backend_dir = Path(__file__).resolve().parent.parent
+_backend_env = _backend_dir / ".env"
+_repo_env = _backend_dir.parent / ".env"
+
+if _backend_env.exists():
+    load_dotenv(_backend_env, override=True)
+elif _repo_env.exists():
+    load_dotenv(_repo_env, override=True)
+else:
+    load_dotenv(override=True)
 
 class Settings(BaseSettings):
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
@@ -18,7 +32,7 @@ class Settings(BaseSettings):
     GEMINI_TIMEOUT_SECONDS: int = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "90"))
     
     class Config:
-        env_file = ".env"
+        env_file = str(_backend_env) if _backend_env.exists() else ".env"
         extra = "allow"
 
 settings = Settings()

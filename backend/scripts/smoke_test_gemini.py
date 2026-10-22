@@ -31,18 +31,18 @@ backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if backend_root not in sys.path:
     sys.path.insert(0, backend_root)
 
-# Attempt to load .env from backend root or workspace root
+# Attempt to load .env from backend root or workspace root with override=True
 try:
     from dotenv import load_dotenv
     # Check backend/.env first, then parent .env
     backend_env = os.path.join(backend_root, ".env")
     repo_env = os.path.abspath(os.path.join(backend_root, "..", ".env"))
     if os.path.exists(backend_env):
-        load_dotenv(backend_env)
+        load_dotenv(backend_env, override=True)
     elif os.path.exists(repo_env):
-        load_dotenv(repo_env)
+        load_dotenv(repo_env, override=True)
     else:
-        load_dotenv()
+        load_dotenv(override=True)
 except ImportError:
     pass
 
@@ -67,15 +67,15 @@ def mask_key(key: str) -> str:
 def is_valid_gemini_key_format(key: str) -> bool:
     """
     Basic sanity check for a Google AI Studio Gemini API key.
-    Google AI Studio keys are alphanumeric strings typically starting with 'AIzaSy'.
-    Internal sandbox bearer tokens are rejected because they cannot be used with Gemini API.
+    Google AI Studio keys are alphanumeric strings typically starting with 'AIzaSy' or 'AQ'.
+    Internal sandbox placeholder strings or service account prefixes are rejected.
     """
     if not key or not isinstance(key, str):
         return False
     key = key.strip()
     if len(key) < 15:
         return False
-    if key.startswith(("AQ", "sandbox-", "service-account-")):
+    if key.startswith(("sandbox", "service-account", "your_api_key", "bearer_token")):
         return False
     return True
 
@@ -95,12 +95,12 @@ def print_missing_key_report(reason: Optional[str] = None):
     print("     https://aistudio.google.com/")
     print()
     print("  2. Configure the key in your environment:")
-    print("     - Windows (PowerShell):  $env:GEMINI_API_KEY=\"AIzaSy...\"")
-    print("     - Linux / macOS (bash):  export GEMINI_API_KEY=\"AIzaSy...\"")
+    print("     - Windows (PowerShell):  $env:GEMINI_API_KEY=\"AQ...\" or \"AIzaSy...\"")
+    print("     - Linux / macOS (bash):  export GEMINI_API_KEY=\"AQ...\" or \"AIzaSy...\"")
     print()
     print("  3. Or create a .env file in the backend directory:")
-    print("     GEMINI_API_KEY=AIzaSy...")
-    print("     GEMINI_MODEL=gemini-2.5-flash")
+    print("     GEMINI_API_KEY=AQ...")
+    print("     GEMINI_MODEL=gemini-3.1-flash-lite")
     print("=" * 72)
 
 
@@ -250,6 +250,8 @@ async def run_smoke_test(
         "strict": strict,
         "mock_mode": mock_mode,
         "api_key_configured": False,
+        "live_authenticated": False,
+        "authentication_status": "UNTESTED",
         "search_grounding_verified": False,
         "url_context_verified": False,
         "metadata_verified": False,
@@ -257,7 +259,7 @@ async def run_smoke_test(
     }
 
     # Determine API key
-    effective_key = api_key or os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
+    effective_key = api_key if api_key is not None else (os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY or "")
     results["api_key_masked"] = mask_key(effective_key)
 
     if verbose:
@@ -270,7 +272,7 @@ async def run_smoke_test(
         print(f"Configured Key:  {results['api_key_masked']}")
         print("=" * 72 + "\n")
 
-    # If running in mock mode, bypass key checks
+    # If running in mock mode, bypass live API calls
     if mock_mode:
         if verbose:
             print("[*] Running in deterministic MOCK mode...")
@@ -279,6 +281,9 @@ async def run_smoke_test(
         extraction_res = get_mock_extraction_response(chosen_url)
 
         # Validate discovery
+        results["mode"] = "mock"
+        results["live_authenticated"] = False
+        results["authentication_status"] = "MOCK_OFFLINE"
         results["api_key_configured"] = True
         results["search_grounding_verified"] = discovery_res.get("success", False)
         results["discovered_sources_count"] = len(discovery_res.get("sources", []))
@@ -302,14 +307,14 @@ async def run_smoke_test(
         results["metadata_verified"] = has_success_status and has_verbatim_criteria
 
         if verbose:
-            print(f"[+] [Test 1/2] Search Grounding: PASSED ({len(discovery_res['sources'])} sources discovered)")
+            print(f"[+] [Mock 1/2] Search Grounding: PASSED ({len(discovery_res['sources'])} sources discovered)")
             for src in discovery_res["sources"]:
                 print(f"    - {src['title']}: {src['url']}")
-            print(f"[+] [Test 2/2] URL Context Tool: PASSED ({extraction_res['retrieval_status']})")
+            print(f"[+] [Mock 2/2] URL Context Tool: PASSED ({extraction_res['retrieval_status']})")
             print(f"    - Target URL: {chosen_url}")
             print(f"    - Retrieval Quality: {extraction_res['evidence_quality']}")
             print(f"    - Extracted Criteria: {len(extraction_res['data']['admission_requirements'])} admission items")
-            print("\n[+] LIVE GEMINI SMOKE TEST: ALL GATES PASSED (Mock Verified)")
+            print("\n[+] MOCK SMOKE TEST: ALL GATES PASSED (Deterministic Mock Mode - NOT Live API)")
 
         return True, results
 
@@ -317,36 +322,50 @@ async def run_smoke_test(
     if not effective_key:
         msg = "GEMINI_API_KEY is not configured in environment or .env."
         results["errors"].append(msg)
+        results["authentication_status"] = "UNCONFIGURED"
         if verbose:
             print_missing_key_report()
         return (False if strict else True), results
 
-    # If the key is not in a recognized format (e.g. a sandbox bearer token)
+    # If the key is not in a recognized format (e.g. placeholder string)
     if not is_valid_gemini_key_format(effective_key):
         msg = (
             f"Configured GEMINI_API_KEY ({mask_key(effective_key)}) does not appear to be a "
-            "valid Google AI Studio API key (which typically starts with 'AIzaSy...'). "
-            "Internal sandbox bearer tokens will be rejected by Google Gen AI with 401 UNAUTHENTICATED."
+            "valid Google AI Studio API key format (e.g. 'AQ...' or 'AIzaSy...'). "
+            "Internal sandbox placeholder strings will be rejected."
         )
         results["errors"].append(msg)
+        results["authentication_status"] = "INVALID_KEY_FORMAT"
         if verbose:
             print_missing_key_report(reason=msg)
         return (False if strict else True), results
 
-    # Initialize live GeminiService
-    service = GeminiService()
-    service.api_key = effective_key
-    # Re-initialize client with the explicit effective key
-    try:
-        from google import genai
-        service._client = genai.Client(api_key=effective_key)
-    except Exception as e:
-        results["errors"].append(f"Failed to instantiate genai.Client: {str(e)}")
+    # Initialize live GeminiService with explicit key
+    service = GeminiService(api_key=effective_key)
+    results["api_key_configured"] = True
+    results["model_configured"] = service.model
+
+    # -----------------------------------------------------------------
+    # Step 0: Test Live Gemini API Authentication
+    # -----------------------------------------------------------------
+    if verbose:
+        print(f"[*] [Test 1/3] Validating Live Gemini API Authentication (Model: {service.model})...", flush=True)
+
+    auth_res = await service.validate_connection()
+    results["authentication_status"] = auth_res.get("status", "UNKNOWN")
+    results["live_authenticated"] = auth_res.get("authenticated", False)
+
+    if not auth_res.get("authenticated"):
+        err_msg = auth_res.get("message", "Authentication check failed.")
+        results["errors"].append(err_msg)
         if verbose:
-            print(f"[!] Error creating Gemini Client: {e}")
+            print(f"[!] [Test 1/3] Gemini API Authentication FAILED: {err_msg}", flush=True)
+            if auth_res.get("status") == "UNAUTHENTICATED":
+                print_missing_key_report(reason=err_msg)
         return False, results
 
-    results["api_key_configured"] = True
+    if verbose:
+        print(f"[+] [Test 1/3] Gemini API Authentication SUCCESSFUL! Status: {auth_res.get('status')}", flush=True)
 
     # -----------------------------------------------------------------
     # Step 1: Test Google Search Grounding Discovery
@@ -361,8 +380,8 @@ async def run_smoke_test(
     )
 
     if verbose:
-        print(f"[*] [Test 1/2] Testing Google Search Grounding via Gemini 2.5 Flash...")
-        print(f"    Query: '{search_query}'")
+        print(f"\n[*] [Test 2/3] Testing Google Search Grounding via {service.model}...", flush=True)
+        print(f"    Query: '{search_query}'", flush=True)
 
     try:
         discovery_res = await service.search_grounded_discovery(search_query, context_prompt)
@@ -370,16 +389,15 @@ async def run_smoke_test(
         err_str = f"Search Grounding exception: {str(e)}"
         results["errors"].append(err_str)
         if verbose:
-            print(f"[!] {err_str}")
+            print(f"[!] {err_str}", flush=True)
         return False, results
 
     if not discovery_res.get("success"):
         err_msg = discovery_res.get("error", "Unknown search grounding failure")
         results["errors"].append(err_msg)
         if verbose:
-            print(f"[!] Search Grounding failed: {err_msg}")
-            # If 401 UNAUTHENTICATED or invalid key, print troubleshooting advice
-            if "401" in err_msg or "UNAUTHENTICATED" in err_msg or "API key not valid" in err_msg:
+            print(f"[!] [Test 2/3] Search Grounding failed: {err_msg}", flush=True)
+            if "401" in err_msg or "UNAUTHENTICATED" in err_msg:
                 print_missing_key_report(reason=f"Google API rejected key: {err_msg}")
         return (False if strict else True), results
 
@@ -391,9 +409,9 @@ async def run_smoke_test(
     results["search_queries"] = discovery_res.get("search_queries", [])
 
     if verbose:
-        print(f"[+] [Test 1/2] Search Grounding SUCCESSFUL! Discovered {len(sources)} source links.")
+        print(f"[+] [Test 2/3] Search Grounding SUCCESSFUL! Discovered {len(sources)} source links.", flush=True)
         for src in sources[:5]:
-            print(f"    - {src.get('title', 'Source')}: {src.get('url')}")
+            print(f"    - {src.get('title', 'Source')}: {src.get('url')}", flush=True)
 
     # -----------------------------------------------------------------
     # Step 2: Test URL Context Extraction Tool
@@ -405,8 +423,8 @@ async def run_smoke_test(
         chosen_url = "https://web.cs.toronto.edu/graduate/mscac"
 
     if verbose:
-        print(f"\n[*] [Test 2/2] Testing Google Gen AI SDK URL Context Tool: types.Tool(url_context=types.UrlContext())...")
-        print(f"    Target URL: {chosen_url}")
+        print(f"\n[*] [Test 3/3] Testing Google Gen AI SDK URL Context Tool: types.Tool(url_context=types.UrlContext())...", flush=True)
+        print(f"    Target URL: {chosen_url}", flush=True)
 
     try:
         extraction_res = await service.analyze_url_and_extract_criteria(
@@ -419,14 +437,14 @@ async def run_smoke_test(
         err_str = f"URL Context extraction exception: {str(e)}"
         results["errors"].append(err_str)
         if verbose:
-            print(f"[!] {err_str}")
+            print(f"[!] {err_str}", flush=True)
         return False, results
 
     if not extraction_res.get("success"):
         err_msg = extraction_res.get("error", "Unknown URL extraction failure")
         results["errors"].append(err_msg)
         if verbose:
-            print(f"[!] URL Context extraction failed: {err_msg}")
+            print(f"[!] [Test 3/3] URL Context extraction failed: {err_msg}", flush=True)
         return (False if strict else True), results
 
     # Inspect UrlRetrievalStatus metadata
@@ -459,7 +477,7 @@ async def run_smoke_test(
     results["metadata_verified"] = is_success and has_excerpts
 
     if verbose:
-        print(f"[+] [Test 2/2] URL Context Tool SUCCESSFUL!")
+        print(f"[+] [Test 3/3] URL Context Tool SUCCESSFUL!")
         print(f"    - Overall Retrieval Status: {retrieval_status}")
         print(f"    - Evidence Quality:         {evidence_quality}")
         print(f"    - URLs Inspected:           {len(url_statuses)}")
@@ -478,7 +496,13 @@ async def run_smoke_test(
         print("  LIVE GEMINI SMOKE TEST: ALL GATES PASSED (100% Verified)")
         print("=" * 72 + "\n")
 
-    return True, results
+    passed = (
+        results["live_authenticated"]
+        and results["search_grounding_verified"]
+        and results["url_context_verified"]
+    ) if strict else results["live_authenticated"]
+
+    return passed, results
 
 
 # =====================================================================

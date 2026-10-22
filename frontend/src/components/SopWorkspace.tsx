@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Download, Sparkles, AlertTriangle, FileEdit } from 'lucide-react';
+import { X, Copy, Check, Download, AlertTriangle, FileEdit, RefreshCw } from 'lucide-react';
 import type { Opportunity, ApplicationDraft } from '../types';
 import { generateSopDraft } from '../api/client';
 
@@ -114,7 +114,7 @@ export const SopWorkspace: React.FC<SopWorkspaceProps> = ({
             
             {isLoading ? (
               <div className="h-80 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center gap-3 text-slate-400 text-xs">
-                <Sparkles className="h-6 w-6 text-emerald-400 animate-spin" />
+                <RefreshCw className="h-6 w-6 text-emerald-400 animate-spin" />
                 <span>Synthesizing student profile with program objectives...</span>
               </div>
             ) : (

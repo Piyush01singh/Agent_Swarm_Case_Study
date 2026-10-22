@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, RefreshCw, Activity, ShieldCheck, GraduationCap } from 'lucide-react';
+import { RefreshCw, Activity, ShieldCheck, GraduationCap } from 'lucide-react';
 
 interface NavbarProps {
   onReset: () => void;
@@ -57,7 +57,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={onOpenProfile}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-700/20 transition"
           >
-            <Sparkles className="h-4 w-4" />
             <span>Configure Student</span>
           </button>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Upload, Code2, Sparkles, AlertCircle, CheckCircle2, FileText } from 'lucide-react';
+import { X, Upload, Code2, AlertCircle, CheckCircle2, FileText } from 'lucide-react';
 import type { StudentProfile } from '../types';
 import { extractProfile } from '../api/client';
 
@@ -146,7 +146,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-emerald-400" />
               Configure Student Profile & Documents
             </h2>
             <p className="text-xs text-slate-400 mt-1">
@@ -401,7 +400,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             onClick={() => onStartResearch(profile)}
             className="px-6 py-2.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 flex items-center gap-2 transition"
           >
-            <Sparkles className="h-4 w-4" />
             Launch 5-Agent Research Cycle
           </button>
         </div>

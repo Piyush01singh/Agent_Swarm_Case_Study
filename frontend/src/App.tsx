@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Sparkles,
   Search,
   GraduationCap,
   Award,
   Globe2,
   User,
-  Code2
+  Code2,
+  RefreshCw
 } from 'lucide-react';
 import type { StudentProfile, Opportunity, AgentEvent } from './types';
 import { checkHealth, startResearch, getOpportunities, subscribeToEvents, resetDemoData, getOpportunityDetails } from './api/client';
@@ -97,9 +97,22 @@ export const App: React.FC = () => {
         run.id,
         (event: AgentEvent) => {
           setEvents((prev) => [...prev, event]);
-          if (event.event_type.includes("SEARCH")) setCurrentPhase("DISCOVERY");
-          else if (event.event_type.includes("SCORE")) setCurrentPhase("RANKING");
-          else if (event.event_type.includes("REVIEW")) setCurrentPhase("REVIEW");
+          if (event.event_type.includes("SEARCH") || event.event_type.includes("DISCOVERY") || event.event_type.includes("CANDIDATE")) {
+            setCurrentPhase("DISCOVERY");
+          } else if (event.event_type.includes("SCORE") || event.event_type.includes("SHORTLIST")) {
+            setCurrentPhase("RANKING");
+            getOpportunities(run.id).then((opps) => {
+              if (opps && opps.length > 0) setOpportunities(opps);
+            });
+          } else if (event.event_type.includes("REVIEW")) {
+            setCurrentPhase("REVIEW");
+          } else if (event.event_type.includes("COMPLETE")) {
+            setIsCompleted(true);
+            setCurrentPhase("COMPLETED");
+            getOpportunities(run.id).then((opps) => {
+              if (opps && opps.length > 0) setOpportunities(opps);
+            });
+          }
         },
         async () => {
           setIsCompleted(true);
@@ -107,8 +120,18 @@ export const App: React.FC = () => {
           const opps = await getOpportunities(run.id);
           setOpportunities(opps);
         },
-        (err) => {
-          console.error("SSE stream error", err);
+        async (err) => {
+          console.error("SSE stream error or disconnect", err);
+          try {
+            const opps = await getOpportunities(run.id);
+            if (opps && opps.length > 0) {
+              setOpportunities(opps);
+              setIsCompleted(true);
+              setCurrentPhase("COMPLETED");
+            }
+          } catch (e) {
+            console.error("Failed to fetch opportunities after SSE disconnect", e);
+          }
         }
       );
     } catch (err: any) {
@@ -172,7 +195,6 @@ export const App: React.FC = () => {
         <div className="relative rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-emerald-950/40 border border-slate-800 p-8 sm:p-10 shadow-2xl overflow-hidden">
           <div className="relative z-10 max-w-3xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-4">
-              <Sparkles className="h-3.5 w-3.5" />
               Autonomous Academic Research Engine
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
@@ -308,17 +330,29 @@ export const App: React.FC = () => {
 
           {opportunities.length === 0 && (
             <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800 space-y-4">
-              <GraduationCap className="h-10 w-10 text-emerald-400 mx-auto" />
-              <h3 className="text-base font-bold text-white">No research results in current session</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Launch the 5-agent research cycle to discover live scholarships across Canada, Germany, and Singapore tailored to your profile.
-              </p>
-              <button
-                onClick={() => setIsProfileModalOpen(true)}
-                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-2"
-              >
-                <Sparkles className="h-4 w-4" /> Start Research Now
-              </button>
+              {currentPhase !== "STANDBY" && !isCompleted ? (
+                <>
+                  <RefreshCw className="h-10 w-10 text-emerald-400 mx-auto animate-spin" />
+                  <h3 className="text-base font-bold text-white">ScholarSwarm Research Cycle in Progress</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    The 5-agent research swarm is currently discovering opportunities, verifying official admissions criteria, and calculating match rankings...
+                  </p>
+                </>
+              ) : (
+                <>
+                  <GraduationCap className="h-10 w-10 text-emerald-400 mx-auto" />
+                  <h3 className="text-base font-bold text-white">No research results in current session</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Launch the 5-agent research cycle to discover live scholarships across Canada, Germany, and Singapore tailored to your profile.
+                  </p>
+                  <button
+                    onClick={() => setIsProfileModalOpen(true)}
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-2"
+                  >
+                    Start Research Now
+                  </button>
+                </>
+              )}
             </div>
           )}
         </section>

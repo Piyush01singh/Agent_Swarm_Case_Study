@@ -53,9 +53,11 @@ def test_is_valid_gemini_key_format():
     assert is_valid_gemini_key_format("too_short") is False
     assert is_valid_gemini_key_format("sandbox_bearer_token_redacted") is False
 
-    # Valid key formats
+    # Valid key formats (both traditional AIza and modern AQ keys)
     assert is_valid_gemini_key_format("AIzaSyB1234567890abcdefGHIJKLMN") is True
     assert is_valid_gemini_key_format("AIzaDummyValidLengthApiKey1234567890") is True
+    assert is_valid_gemini_key_format("AQ.Ab8DummyValidLengthApiKey1234567890") is True
+    assert is_valid_gemini_key_format("AQDummyApiKeyFormatTesting1234567890") is True
 
 
 # =====================================================================
@@ -203,10 +205,12 @@ async def test_smoke_test_with_mocked_gemini_service_success():
 
     dummy_valid_key = "AIzaSyB1234567890abcdefGHIJKLMN"
 
-    with patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
+    with patch.object(GeminiService, "validate_connection", new_callable=AsyncMock) as mock_auth, \
+         patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
          patch.object(GeminiService, "analyze_url_and_extract_criteria", new_callable=AsyncMock) as mock_extract, \
          patch("google.genai.Client") as mock_client:
 
+        mock_auth.return_value = {"authenticated": True, "status": "AUTHENTICATED"}
         mock_search.return_value = mock_discovery
         mock_extract.return_value = mock_extraction
 
@@ -219,6 +223,7 @@ async def test_smoke_test_with_mocked_gemini_service_success():
 
         assert passed is True
         assert results["api_key_configured"] is True
+        assert results["live_authenticated"] is True
         assert results["search_grounding_verified"] is True
         assert results["discovered_sources_count"] == 1
         assert results["url_context_verified"] is True
@@ -235,9 +240,11 @@ async def test_smoke_test_with_mocked_gemini_service_search_failure():
     """Verify that search grounding failure is captured and returned appropriately."""
     dummy_valid_key = "AIzaSyB1234567890abcdefGHIJKLMN"
 
-    with patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
+    with patch.object(GeminiService, "validate_connection", new_callable=AsyncMock) as mock_auth, \
+         patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
          patch("google.genai.Client"):
 
+        mock_auth.return_value = {"authenticated": True, "status": "AUTHENTICATED"}
         mock_search.return_value = {
             "success": False,
             "error": "Simulated Google Search grounding quota exceeded.",
@@ -285,10 +292,12 @@ async def test_smoke_test_with_mocked_gemini_service_url_extraction_failure():
         "evidence_quality": "UNVERIFIED"
     }
 
-    with patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
+    with patch.object(GeminiService, "validate_connection", new_callable=AsyncMock) as mock_auth, \
+         patch.object(GeminiService, "search_grounded_discovery", new_callable=AsyncMock) as mock_search, \
          patch.object(GeminiService, "analyze_url_and_extract_criteria", new_callable=AsyncMock) as mock_extract, \
          patch("google.genai.Client"):
 
+        mock_auth.return_value = {"authenticated": True, "status": "AUTHENTICATED"}
         mock_search.return_value = mock_discovery
         mock_extract.return_value = mock_extraction_fail
 
@@ -302,3 +311,29 @@ async def test_smoke_test_with_mocked_gemini_service_url_extraction_failure():
         assert results["search_grounding_verified"] is True
         assert results["url_context_verified"] is False
         assert len(results["errors"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_smoke_test_authentication_failure():
+    """Verify that 401 UNAUTHENTICATED fails the smoke test and reports error."""
+    dummy_key = "AQ.Ab8InvalidTestKey1234567890abcdef"
+
+    with patch.object(GeminiService, "validate_connection", new_callable=AsyncMock) as mock_auth, \
+         patch("google.genai.Client"):
+
+        mock_auth.return_value = {
+            "authenticated": False,
+            "status": "UNAUTHENTICATED",
+            "message": "Google Gen AI rejected the key with 401 UNAUTHENTICATED."
+        }
+
+        passed, results = await run_smoke_test(
+            api_key=dummy_key,
+            strict=False,
+            mock_mode=False,
+            verbose=False
+        )
+        assert passed is False
+        assert results["live_authenticated"] is False
+        assert results["authentication_status"] == "UNAUTHENTICATED"
+        assert any("401 UNAUTHENTICATED" in err for err in results["errors"])

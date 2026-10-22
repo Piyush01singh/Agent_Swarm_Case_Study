@@ -355,17 +355,30 @@ class ResearchEligibilityAgent:
                     metadata={"country": country}
                 ))
 
-        # Check if any candidates were discovered
+        # Check if any candidates were discovered; fall back to verified registry if search yielded 0
         if not candidate_sources:
-            await repository.save_agent_event(AgentEvent(
-                run_id=run_id,
-                agent_role=self.role_name,
-                event_type="DISCOVERY_EMPTY",
-                title="No Candidates Found",
-                description="Live search grounding did not return candidate URLs for the specified criteria.",
-                metadata={"countries": profile.target_countries}
-            ))
-            return []
+            from app.services.discovery_registry import get_verified_candidates_for_countries
+            fallback_candidates = get_verified_candidates_for_countries(profile.target_countries)
+            if fallback_candidates:
+                candidate_sources = fallback_candidates
+                await repository.save_agent_event(AgentEvent(
+                    run_id=run_id,
+                    agent_role=self.role_name,
+                    event_type="DISCOVERY_FALLBACK",
+                    title="Using Verified Institutional Portals",
+                    description=f"Retrieved {len(candidate_sources)} verified official scholarship and degree programs across {', '.join(profile.target_countries)}.",
+                    metadata={"countries": profile.target_countries, "count": len(candidate_sources)}
+                ))
+            else:
+                await repository.save_agent_event(AgentEvent(
+                    run_id=run_id,
+                    agent_role=self.role_name,
+                    event_type="DISCOVERY_EMPTY",
+                    title="No Candidates Found",
+                    description="Live search grounding did not return candidate URLs for the specified criteria.",
+                    metadata={"countries": profile.target_countries}
+                ))
+                return []
 
         # Bound candidates to configured limit
         max_candidates = getattr(settings, "MAX_RESEARCH_CANDIDATES", 30)
