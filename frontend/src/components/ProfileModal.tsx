@@ -285,7 +285,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 className="mt-0.5 rounded border-slate-700 bg-slate-800 text-emerald-500 focus:ring-0"
               />
               <span className="text-xs text-slate-400">
-                I understand that profile facts will be processed by ScholarSwarm's 5 AI agents using Gemini Google Search grounding to discover live scholarships. No personal contact details will be submitted to third parties.
+                I understand that profile facts will be processed by ScholarSwarm's 5 AI agents using Tavily Search and safe official webpage retrieval to discover live scholarships. No personal contact details will be submitted to third parties.
               </span>
             </label>
           </div>

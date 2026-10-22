@@ -22,7 +22,7 @@
 - **Spoken Action**:
   "Look at our live agent timeline. These aren't fake progress animations—these are real Server-Sent Events streamed from LangGraph:
   - Agent 1 extracted Rahul's 8.2 CGPA, skills in PyTorch and FastAPI, and enriched his profile with verified GitHub repos.
-  - Agent 2 formulated targeted queries using Gemini Google Search grounding across Canada, Germany, and Singapore, discovering official degree programs.
+  - Agent 2 formulated targeted queries using Tavily Search across Canada, Germany, and Singapore, then verified official pages through safe retrieval, discovering authentic degree programs.
   - Agent 3 is scoring candidates deterministically.
   - Agent 5 is independently auditing source citations."
 - **Screen Action**:

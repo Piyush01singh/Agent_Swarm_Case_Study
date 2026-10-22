@@ -29,16 +29,18 @@ graph TD
     BE --> MultiAgentSwarm
     
     subgraph ExternalIntegrations ["External Tools & Grounding"]
-        GeminiSearch["Gemini Google Search Grounding"]
-        URLContext["Gemini URL Context / Official Auditing"]
+        TavilySearch["Tavily Search API"]
+        SafeRetrieval["Safe Official Webpage Retrieval"]
+        GeminiAudit["Gemini Evidence Verification"]
         GitHubAPI["GitHub REST API"]
     end
     
     A1 --> GitHubAPI
-    A2 --> GeminiSearch
-    A2 --> URLContext
-    A4 --> GeminiSearch
-    A5 --> URLContext
+    A2 --> TavilySearch
+    A2 --> SafeRetrieval
+    A2 --> GeminiAudit
+    A4 --> SafeRetrieval
+    A5 --> GeminiAudit
     
     subgraph StorageLayer ["Persistence & Recovery"]
         Supabase["Supabase PostgreSQL (Runs, Opportunities, Evidence, Events)"]
@@ -85,7 +87,7 @@ ScholarSwarm uses **exactly five named agent roles** executing specific responsi
 | Agent Role | Responsibility | Input | Output | AI vs. Deterministic |
 |---|---|---|---|---|
 | **1. Profile Intelligence Agent** | Parses PDF/DOCX resumes and marksheet transcripts locally, retrieves public GitHub repositories to verify AI/ML experience, and detects conflicting facts. | Document text, form data, GitHub handle | `StudentProfile` Pydantic model | Hybrid (Local regex/PyMuPDF + GitHub REST API) |
-| **2. Research & Eligibility Agent** | Discovers genuine programs via Gemini Google Search grounding, examines official URLs, and determines criterion-level admission/scholarship eligibility. | Profile facts, target countries, intake | Candidate opportunities, `EvidenceRecord`s | AI (Gemini Search & URL Context) |
+| **2. Research & Eligibility Agent** | Discovers genuine programs via Tavily Search, safely retrieves official web pages, and determines criterion-level admission/scholarship eligibility. | Profile facts, target countries, intake | Candidate opportunities, `EvidenceRecord`s | AI (Tavily Search + Safe Retrieval + Gemini validation) |
 | **3. Match Strategist Agent** | Evaluates hard mandatory eligibility disqualifiers, calculates multidimensional match scores (0-100), and shortlists top 5 opportunities. | Verified opportunities & profile | Scored opportunities & Top-5 flags | **100% Deterministic Python** |
 | **4. Application Coach Agent** | Synthesizes verified student projects and skills with official program focus to produce an editable Statement of Purpose (SOP) without inventing accomplishments. | Selected opportunity & profile | `ApplicationDraft` with unconfirmed flags | AI (Constrained LLM Prompt) |
 | **5. Quality Reviewer Agent** | Independently audits evidence citations, flags secondary sources, detects ambiguous deadlines, and triggers targeted re-research loops. | Scored opportunities & evidence | Review status, audit issues, retry trigger | AI + Deterministic Rule Auditing |

@@ -6,7 +6,7 @@ Concise, high-conviction answers explaining architecture decisions, trade-offs, 
 ---
 
 ### 1. Explain ScholarSwarm in 30 seconds.
-"ScholarSwarm is an autonomous, evidence-first scholarship intelligence platform. Instead of generic search engines or unreliable chatbots, five collaborating AI agents coordinated by LangGraph read a student's actual resume, transcripts, and GitHub repositories. They use live Gemini Google Search grounding to discover genuine university programs, verify criterion-level admissions policies against official university domains, calculate a transparent 0-100 deterministic match score, and draft a grounded Statement of Purpose without hallucinations."
+"ScholarSwarm is an autonomous, evidence-first scholarship intelligence platform. Instead of generic search engines or unreliable chatbots, five collaborating AI agents coordinated by LangGraph read a student's actual resume, transcripts, and GitHub repositories. They use live Tavily Search and safe official webpage retrieval to discover genuine university programs, verify criterion-level admissions policies against official university domains, calculate a transparent 0-100 deterministic match score, and draft a grounded Statement of Purpose without hallucinations."
 
 ---
 
@@ -41,8 +41,8 @@ Combining them into one mega-prompt causes instruction drift and ungrounded clai
 
 ---
 
-### 7. Why Gemini Search grounding + URL Context rather than Tavily, Firecrawl, or custom scrapers?
-"Gemini Google Search grounding integrates directly with Google's search index natively within the model call, returning real grounding citations without requiring secondary paid subscription services like Tavily or Firecrawl. URL Context allows direct page analysis within the same tool ecosystem, minimizing infrastructure footprint."
+### 7. Why Tavily + safe webpage retrieval rather than raw Gemini Search or custom scrapers?
+"Tavily provides fast, targeted live search across scholarship and university websites, which makes it well-suited for discovering programs and funding opportunities with strong relevance and low noise. We then use safe, domain-validated retrieval for official pages and Gemini for evidence verification, which gives us stronger sourcing discipline than a raw search-only workflow while avoiding brittle custom scraper maintenance."
 
 ---
 

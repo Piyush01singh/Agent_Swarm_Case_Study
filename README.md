@@ -2,7 +2,7 @@
 ### Multi-Agent International Academic Scholarship Intelligence Engine
 **TetraNoodle AI Hackathon 2026**
 
-ScholarSwarm replaces generic search portals and hallucinating chatbots with an evidence-first, multi-agent research assistant. Five specialized AI agent roles coordinated through LangGraph read student academic credentials, discover genuine degree programs and funding opportunities using Gemini Google Search grounding, evaluate admissions policies against official university domains, calculate transparent deterministic match scores, and generate grounded Statements of Purpose (SOP).
+ScholarSwarm replaces generic search portals and hallucinating chatbots with an evidence-first, multi-agent research assistant. Five specialized AI agent roles coordinated through LangGraph read student academic credentials, discover genuine degree programs and funding opportunities using Tavily Search plus safe official webpage retrieval, evaluate admissions policies against official university domains, calculate transparent deterministic match scores, and generate grounded Statements of Purpose (SOP).
 
 ---
 
@@ -10,7 +10,7 @@ ScholarSwarm replaces generic search portals and hallucinating chatbots with an 
 
 1. **5 Collaborating AI Agent Roles**:
    - **Profile Intelligence Agent**: Extracts credentials locally from PDF/DOCX resumes and transcripts; enriches profile with public GitHub repositories.
-   - **Research & Eligibility Agent**: Conducts live Gemini Google Search grounding across Canada, Germany, and Singapore, auditing official portal requirements.
+   - **Research & Eligibility Agent**: Conducts live Tavily Search discovery across Canada, Germany, and Singapore, then validates official requirements through safe webpage retrieval and evidence checks.
    - **Match Strategist Agent**: Calculates deterministic 0-100 fit scores with hard eligibility disqualifier filters.
    - **Application Coach Agent**: Operates on-demand when a user selects a matched candidate to draft a tailored, editable Statement of Purpose without inventing accomplishments.
    - **Quality Reviewer Agent**: Adversarially challenges evidence, verifies source domains, and triggers bounded self-correction loops.
@@ -52,16 +52,18 @@ graph TD
     BE --> MultiAgentSwarm
     
     subgraph ExternalServices ["External Tools & Grounding"]
-        GeminiSearch["Gemini Google Search Grounding"]
-        URLContext["Gemini URL Context / Official Auditing"]
+        TavilySearch["Tavily Search API"]
+        SafeRetrieval["Safe Official Webpage Retrieval"]
+        GeminiAudit["Gemini Evidence Verification"]
         GitHubAPI["GitHub REST API"]
     end
     
     A1 --> GitHubAPI
-    A2 --> GeminiSearch
-    A2 --> URLContext
-    A4 --> GeminiSearch
-    A5 --> URLContext
+    A2 --> TavilySearch
+    A2 --> SafeRetrieval
+    A2 --> GeminiAudit
+    A4 --> SafeRetrieval
+    A5 --> GeminiAudit
     
     subgraph StorageLayer ["Persistence & Recovery"]
         Supabase["Supabase PostgreSQL (Runs, Opportunities, Evidence, Events)"]
@@ -93,14 +95,17 @@ cp .env.example .env
 Set the following in `.env`:
 ```dotenv
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
+TAVILY_API_KEY=your_tavily_api_key_here
+TAVILY_SEARCH_DEPTH=basic
+TAVILY_MAX_RESULTS=5
 GITHUB_TOKEN=your_optional_github_token
 SUPABASE_URL=your_supabase_url_here
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_key_here
 FRONTEND_ORIGIN=http://localhost:5173
 VITE_API_BASE_URL=http://localhost:8000
 ```
-*(Note: If `GEMINI_API_KEY` or `SUPABASE_URL` is omitted, ScholarSwarm operates seamlessly in resilient local evaluation mode using in-memory storage and verified benchmark academic opportunities).*
+*(Note: If `GEMINI_API_KEY`, `TAVILY_API_KEY`, or `SUPABASE_URL` is omitted, ScholarSwarm operates seamlessly in resilient local evaluation mode using in-memory storage and verified benchmark academic opportunities).*
 
 ---
 
