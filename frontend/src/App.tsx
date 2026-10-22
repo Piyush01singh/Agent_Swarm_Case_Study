@@ -69,7 +69,8 @@ export const App: React.FC = () => {
   const [currentPhase, setCurrentPhase] = useState<string>("STANDBY");
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
-  const [modelName, setModelName] = useState<string>("gemini-2.5-flash");
+  const [modelName, setModelName] = useState<string>("gemini-3.1-flash-lite");
+  const [apiKeySuffix, setApiKeySuffix] = useState<string>("");
   const [availableModels, setAvailableModels] = useState<GeminiModelOption[]>(DEFAULT_MODELS);
 
   // Filter states
@@ -87,6 +88,7 @@ export const App: React.FC = () => {
       .then((data) => {
         setIsHealthy(true);
         if (data.gemini_model) setModelName(data.gemini_model);
+        if (data.api_key_suffix) setApiKeySuffix(data.api_key_suffix);
       })
       .catch(() => setIsHealthy(false));
 
@@ -112,13 +114,10 @@ export const App: React.FC = () => {
       console.warn("Failed to notify backend of model change:", e);
     }
 
-    const chosen = availableModels.find((m) => m.id === newModelId);
-    if (chosen && chosen.rpm_left > 0) {
-      if (currentPhase === "QUOTA_EXHAUSTED") {
-        setCurrentPhase("STANDBY");
-        setEvents((prev) => prev.filter((ev) => ev.event_type !== "QUOTA_EXHAUSTED" && !ev.title.includes("Quota")));
-      }
+    if (currentPhase === "QUOTA_EXHAUSTED") {
+      setCurrentPhase("STANDBY");
     }
+    setEvents((prev) => prev.filter((ev) => ev.event_type !== "QUOTA_EXHAUSTED" && !ev.title.includes("Quota")));
   };
 
   // Launch Multi-Agent Research
@@ -147,8 +146,11 @@ export const App: React.FC = () => {
             setCurrentPhase("DISCOVERY_EMPTY");
           } else if (event.event_type === "ERROR") {
             setCurrentPhase("ERROR");
-          } else if (event.event_type.includes("SEARCH") || event.event_type === "DISCOVERY_STARTED" || event.event_type.includes("CANDIDATE") || (event.event_type.includes("DISCOVERY") && event.event_type !== "DISCOVERY_EMPTY")) {
+          } else if (event.event_type.includes("SEARCH") || event.event_type === "DISCOVERY_STARTED" || event.event_type.includes("CANDIDATE") || (event.event_type.includes("DISCOVERY") && event.event_type !== "DISCOVERY_EMPTY") || event.event_type.includes("EVALUATED") || event.event_type.includes("PAGE")) {
             setCurrentPhase("DISCOVERY");
+            getOpportunities(run.id).then((opps) => {
+              if (opps && opps.length > 0) setOpportunities(opps);
+            });
           } else if (event.event_type.includes("SCORE") || event.event_type.includes("SHORTLIST")) {
             setCurrentPhase("RANKING");
             getOpportunities(run.id).then((opps) => {
@@ -237,6 +239,7 @@ export const App: React.FC = () => {
         onOpenProfile={() => setIsProfileModalOpen(true)}
         isHealthy={isHealthy}
         modelName={modelName}
+        apiKeySuffix={apiKeySuffix}
         availableModels={availableModels}
         onSelectModel={handleModelChange}
       />
@@ -253,7 +256,7 @@ export const App: React.FC = () => {
               Evidence-First Global Scholarships Discovered by Five Collaborating AI Agents
             </h1>
             <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-              ScholarSwarm understands your student credentials, conducts grounded live web discovery using Gemini Search, verifies official admissions criteria, calculates deterministic fit scores, and assists your application.
+              ScholarSwarm understands your student credentials, conducts grounded live web discovery using Tavily Search, verifies official admissions criteria with Gemini, calculates deterministic fit scores, and assists your application.
             </p>
 
             {/* Quick Profile Summary Bar */}
@@ -288,6 +291,19 @@ export const App: React.FC = () => {
           currentPhase={currentPhase}
           isCompleted={isCompleted}
         />
+
+        {/* Retrieval Error Alert Banner (Requirement 7) */}
+        {events.some(e => e.event_type === "RETRIEVAL_ERROR" || e.event_type === "EXTRACTION_SKIPPED" || e.title.includes("Retrieval")) && (
+          <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-3 shadow-lg">
+            <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-bold text-amber-300">Official Portal Retrieval Notice:</span>
+              <p className="text-slate-300 leading-relaxed">
+                One or more official university pages encountered retrieval limitations (institutional paywalls, access restriction, or network timeouts). In accordance with our research integrity policy, unpublished or unretrieved criteria are explicitly marked <span className="font-semibold text-amber-400">UNRESOLVED</span> rather than being falsely presented as verified.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Opportunities Shortlist Section */}
         <section className="space-y-6">
@@ -382,55 +398,38 @@ export const App: React.FC = () => {
 
           {opportunities.length === 0 && (
             <div className="p-8 sm:p-12 text-center rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 shadow-xl">
-              {/* 1. API Quota Exhausted State */}
+              {/* 1. API Quota Exhausted State (Requirement 7) */}
               {currentPhase === "QUOTA_EXHAUSTED" || events.some(e => e.event_type === "QUOTA_EXHAUSTED" || e.title.includes("Quota")) ? (
                 <>
                   <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mx-auto">
                     <AlertTriangle className="h-6 w-6" />
                   </div>
                   <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold">
-                    429 RESOURCE_EXHAUSTED
+                    429 RATE_LIMIT / RESOURCE_EXHAUSTED
                   </div>
-                  <h3 className="text-lg font-bold text-white">Gemini API Quota Exhausted</h3>
+                  <h3 className="text-lg font-bold text-white">Search or AI API Quota Exhausted</h3>
                   <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
-                    Live Google Search grounding and official URL Context extraction could not proceed because the Google Gen AI API quota limit has been reached for <span className="font-mono text-rose-400 font-semibold">{modelName}</span>. ScholarSwarm enforces strict research integrity and will not fabricate synthetic opportunities.
+                    Live scholarship discovery (Tavily Search API) or criteria extraction (Gemini) could not proceed because an API quota or rate limit has been reached. ScholarSwarm enforces strict research integrity and will never fabricate synthetic opportunities or mark unretrieved portals as verified.
                   </p>
 
-                  {/* Switch Model to unexhausted model */}
+                  {/* Active Fixed Model Information */}
                   <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 text-left max-w-lg mx-auto space-y-2.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
                         <Zap className="h-3.5 w-3.5 text-cyan-400" />
-                        Available Models (Unexhausted RPM)
+                        Fixed AI Evaluation Engine
                       </span>
-                      <span className="text-[10px] text-slate-400">Click to switch & start search</span>
+                      <span className="text-[10px] text-emerald-400 font-semibold">15 RPM Capacity</span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {availableModels.filter(m => m.rpm_left > 0).map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            handleModelChange(m.id);
-                            handleStartResearch(profile, m.id);
-                          }}
-                          className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between gap-2 ${
-                            m.id === modelName
-                              ? 'bg-emerald-950/50 border-emerald-500/50'
-                              : 'bg-slate-900/60 border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/60'
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-white truncate">{m.name}</div>
-                            <div className="text-[10px] text-emerald-400 font-medium">
-                              {m.rpm_left}/{m.rpm_limit} RPM left
-                            </div>
-                          </div>
-                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shrink-0">
-                            Start &rarr;
-                          </span>
-                        </button>
-                      ))}
+                    <div className="p-3 rounded-xl border bg-slate-900/60 border-slate-800 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-white">Gemini 3.1 Flash Lite</div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">gemini-3.1-flash-lite</div>
+                      </div>
+                      <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/20">
+                        Active Model
+                      </span>
                     </div>
                   </div>
 
@@ -442,15 +441,15 @@ export const App: React.FC = () => {
                       Configure Profile
                     </button>
                     <button
-                      onClick={() => handleStartResearch(profile, modelName)}
+                      onClick={() => handleStartResearch(profile, "gemini-3.1-flash-lite")}
                       className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-1.5"
                     >
-                      <RefreshCw className="h-3.5 w-3.5" /> Start Scholarship Search with {modelName}
+                      <RefreshCw className="h-3.5 w-3.5" /> Retry Research Cycle
                     </button>
                   </div>
                 </>
               ) : currentPhase === "DISCOVERY_EMPTY" || events.some(e => e.event_type === "DISCOVERY_EMPTY") ? (
-                /* 2. Honest Empty Discovery State */
+                /* 2. Honest Empty Discovery State (Requirement 7) */
                 <>
                   <div className="h-12 w-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mx-auto">
                     <Search className="h-6 w-6" />
@@ -460,7 +459,7 @@ export const App: React.FC = () => {
                   </div>
                   <h3 className="text-lg font-bold text-white">No Matching Programs Discovered</h3>
                   <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
-                    Live Gemini Google Search grounding returned zero candidate degree programs matching your criteria across {profile.target_countries.join(', ')}. In accordance with our research integrity policy, no dummy or synthetic records were substituted.
+                    Live Tavily search returned zero candidate degree programs matching your destination countries ({profile.target_countries.join(', ')}) and degree level ({profile.target_degree} in {profile.target_field}). In accordance with our research integrity policy, zero synthetic or dummy records were substituted.
                   </p>
                   <div className="pt-2 flex items-center justify-center gap-3">
                     <button

@@ -54,79 +54,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     }
   };
 
-  const loadPreset = (presetKey: 'rahul' | 'profileB' | 'profileC') => {
-    if (presetKey === 'rahul') {
-      setProfile({
-        full_name: "Rahul Sharma",
-        email: "rahul.sharma@example.edu",
-        current_degree: "B.Tech Computer Science",
-        institution: "Punjab Technical University / NIT Jalandhar",
-        cgpa: 8.2,
-        grading_scale: "10.0",
-        target_degree: "Master's",
-        target_field: "Computer Science / Artificial Intelligence",
-        target_countries: ["Canada", "Germany", "Singapore"],
-        intended_intake: "Fall 2026",
-        citizenship: "India",
-        funding_preference: "Full Funding / Tuition Assistance",
-        skills: ["Python", "PyTorch", "FastAPI", "Machine Learning", "NLP"],
-        projects: [
-          {
-            title: "Autonomous Agent Evaluator",
-            description: "Built scalable evaluation pipeline for LLM agents using PyTorch and FastAPI",
-            technologies: ["Python", "PyTorch", "FastAPI"],
-            is_ai_ml: true,
-            evidence_source: "github"
-          }
-        ],
-        github_username: "rahul-sharma-ai",
-        career_goals: "Conduct research in resilient AI systems and build production-grade autonomous intelligence.",
-        consent_given: true
-      });
-    } else if (presetKey === 'profileB') {
-      setProfile({
-        full_name: "Ananya Patel",
-        email: "ananya.patel@example.edu",
-        current_degree: "B.Sc Biotechnology",
-        institution: "Delhi University",
-        cgpa: 6.8,
-        grading_scale: "10.0",
-        target_degree: "Master's",
-        target_field: "Bioinformatics / Computational Biology",
-        target_countries: ["Germany"],
-        intended_intake: "Winter 2026",
-        citizenship: "India",
-        funding_preference: "Partial / DAAD Scholarship",
-        skills: ["R", "Python", "Genomics", "Biostatistics"],
-        projects: [],
-        github_username: "ananya-bio",
-        career_goals: "Bridge computational pipelines with biological data analysis.",
-        consent_given: true
-      });
-    } else if (presetKey === 'profileC') {
-      setProfile({
-        full_name: "Vikram Sengupta",
-        email: "vikram.s@example.edu",
-        current_degree: "M.Sc Mathematics & Computing",
-        institution: "IIT Kharagpur",
-        cgpa: 8.6,
-        grading_scale: "10.0",
-        target_degree: "PhD",
-        target_field: "Data Science & Applied Optimization",
-        target_countries: ["Singapore", "Canada"],
-        intended_intake: "Fall 2026",
-        citizenship: "India",
-        funding_preference: "Full Research Scholarship (SINGA / RA)",
-        language_tests: { test: "IELTS", score: null, status: "planned" },
-        skills: ["Optimization", "Stochastic Analysis", "C++", "Python"],
-        projects: [],
-        github_username: "vikram-math",
-        career_goals: "Publish core mathematical optimization theorems in deep learning architectures.",
-        consent_given: true
-      });
-    }
-  };
-
   const handleCountryToggle = (country: string) => {
     const current = profile.target_countries || [];
     if (current.includes(country)) {
@@ -157,28 +84,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           </button>
         </div>
 
-        {/* Presets */}
-        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-400 font-semibold">Load Preset:</span>
-          <button
-            onClick={() => loadPreset('rahul')}
-            className="px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900 transition"
-          >
-            Rahul (8.2 CGPA • CS • AI Projects)
-          </button>
-          <button
-            onClick={() => loadPreset('profileB')}
-            className="px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition"
-          >
-            Profile B (6.8 CGPA • Biotech)
-          </button>
-          <button
-            onClick={() => loadPreset('profileC')}
-            className="px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition"
-          >
-            Profile C (PhD • Missing IELTS)
-          </button>
-        </div>
+
 
         {error && (
           <div className="mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">

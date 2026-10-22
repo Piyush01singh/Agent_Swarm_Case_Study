@@ -34,7 +34,7 @@ const AGENTS = [
     icon: Search,
     color: "from-emerald-600 to-teal-600",
     badgeColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-    description: "Gemini Google Search Grounding & Official URL auditing."
+    description: "Tavily Search API & Safe Official Webpage Retrieval."
   },
   {
     role: "Match Strategist Agent",

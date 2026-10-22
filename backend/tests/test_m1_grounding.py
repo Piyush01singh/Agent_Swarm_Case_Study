@@ -104,21 +104,14 @@ def test_google_search_grounding_tool_structure():
 
 @pytest.mark.asyncio
 async def test_analyze_url_and_extract_criteria_configures_url_context_tool():
-    """Verify analyze_url_and_extract_criteria passes types.Tool(url_context=...) in config."""
+    """Verify analyze_url_and_extract_criteria retrieves authentic criteria and calls Gemini for analysis without URL Context requirement."""
     service = GeminiService()
     service.api_key = "test-api-key"
     mock_client = MagicMock()
     service._client = mock_client
 
-    # Mock response with url_context_metadata
-    mock_candidate = MagicMock()
-    mock_meta_entry = MagicMock()
-    mock_meta_entry.retrieved_url = "https://web.cs.toronto.edu/graduate/mscac"
-    mock_meta_entry.url_retrieval_status = types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
-    mock_candidate.url_context_metadata.url_metadata = [mock_meta_entry]
-
     mock_response = MagicMock()
-    mock_response.candidates = [mock_candidate]
+    mock_response.candidates = []
     mock_response.text = json.dumps({
         "admission_requirements": [
             {
@@ -146,7 +139,8 @@ async def test_analyze_url_and_extract_criteria_configures_url_context_tool():
         urls=["https://web.cs.toronto.edu/graduate/mscac"],
         program_name="MScAC",
         university="University of Toronto",
-        student_profile_summary="CGPA 8.2"
+        student_profile_summary="CGPA 8.2",
+        page_text="MScAC minimum B+ average requirement."
     )
 
     assert res["success"] is True
@@ -154,12 +148,12 @@ async def test_analyze_url_and_extract_criteria_configures_url_context_tool():
     assert res["retrieval_status"] == "URL_RETRIEVAL_STATUS_SUCCESS"
     assert res["evidence_quality"] == "OFFICIAL"
 
-    # Verify that types.Tool(url_context=...) was configured on the call
+    # Verify Gemini was invoked with prompt contents containing program and student info
     call_args = mock_client.models.generate_content.call_args
-    passed_config = call_args.kwargs.get("config")
-    assert passed_config is not None
-    assert hasattr(passed_config, "tools")
-    assert any(getattr(t, "url_context", None) is not None for t in passed_config.tools)
+    assert call_args is not None
+    passed_contents = call_args.kwargs.get("contents", "")
+    assert "MScAC" in passed_contents
+    assert "University of Toronto" in passed_contents
 
 
 # ==============================================================================

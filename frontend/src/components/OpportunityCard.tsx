@@ -7,6 +7,7 @@ import {
   Award,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   HelpCircle,
   BookOpen,
 } from 'lucide-react';
@@ -76,6 +77,11 @@ export const OpportunityCard: React.FC<OpportunityCardProps> = ({
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex flex-wrap items-center gap-2">
             {getStatusBadge()}
+            {opportunity.evidence_quality === 'UNVERIFIED' && (
+              <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20" title="Official portal page could not be retrieved; requirements unverified">
+                <AlertTriangle className="h-2.5 w-2.5" /> Retrieval Incomplete
+              </span>
+            )}
             <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
               {opportunity.country}
             </span>

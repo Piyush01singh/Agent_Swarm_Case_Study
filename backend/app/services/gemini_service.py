@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 from google import genai
 from google.genai import types
 from app.config import settings
+from app.services.safe_retriever import safe_page_retriever
 
 
 class GeminiConfigurationError(RuntimeError):
@@ -19,9 +20,10 @@ class GeminiConfigurationError(RuntimeError):
         super().__init__(message)
         self.message = message
 
+
 class GeminiService:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = api_key or settings.GEMINI_API_KEY
+        self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model = model or settings.GEMINI_MODEL
         self._client = None
         self._is_quota_exhausted = False
@@ -34,6 +36,16 @@ class GeminiService:
         settings.GEMINI_MODEL = model_name
         exhausted_set = getattr(self, "_exhausted_models", set())
         self._is_quota_exhausted = (model_name in exhausted_set)
+
+    def reload_credentials(self, new_key: Optional[str] = None) -> None:
+        """Reload GEMINI_API_KEY from environment/settings and re-initialize genai Client."""
+        from app.config import reload_settings
+        reload_settings()
+        self.api_key = new_key if new_key is not None else settings.GEMINI_API_KEY
+        self.model = settings.GEMINI_MODEL
+        self._is_quota_exhausted = False
+        self._exhausted_models.clear()
+        self._init_client()
 
     def _init_client(self) -> None:
         if self.api_key:
@@ -123,13 +135,14 @@ class GeminiService:
 
     async def search_grounded_discovery(self, query: str, context_prompt: str) -> Dict[str, Any]:
         """
-        Executes a Google Search grounded query using Gemini.
+        Executes search grounded query (legacy Gemini Google Search fallback).
         Captures discovered URLs, grounding citations, and text analysis.
         """
         if self._is_quota_exhausted or not self.is_available:
             return {
                 "success": False,
                 "error": "GEMINI_API_KEY is not configured or quota is exhausted.",
+                "status": "QUOTA_EXHAUSTED" if self._is_quota_exhausted else "ERROR",
                 "candidates": [],
                 "sources": [],
                 "citations": [],
@@ -163,7 +176,6 @@ Provide:
                 temperature=0.2,
             )
             
-            # Execute synchronously in thread pool to avoid blocking asyncio loop
             response = await asyncio.to_thread(
                 self._client.models.generate_content,
                 model=self.model,
@@ -171,7 +183,6 @@ Provide:
                 config=config
             )
             
-            # Extract citations & search grounding metadata
             citations = []
             search_queries = []
             sources = []
@@ -180,7 +191,6 @@ Provide:
                 candidate = response.candidates[0]
                 grounding_metadata = getattr(candidate, "grounding_metadata", None)
                 if grounding_metadata:
-                    # Grounding chunks and web search queries
                     chunks = getattr(grounding_metadata, "grounding_chunks", []) or []
                     for chunk in chunks:
                         web = getattr(chunk, "web", None)
@@ -192,7 +202,6 @@ Provide:
                     web_queries = getattr(grounding_metadata, "web_search_queries", []) or []
                     search_queries = list(web_queries)
 
-            # Parse structured candidates from response text if present
             candidates = []
             raw_text = response.text or ""
             import re
@@ -239,12 +248,15 @@ Provide:
         urls: List[str],
         program_name: str,
         university: str,
-        student_profile_summary: str
+        student_profile_summary: str,
+        page_text: Optional[str] = None,
+        retrieval_status: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Examines official webpage URLs using Gemini URL Context tool to extract
-        requirements, funding, and verify eligibility against published evidence.
-        Falls back to verified official criteria if quota is exhausted.
+        Analyzes official university webpage criteria.
+        Uses safe_page_retriever to retrieve official page content with SSRF protections,
+        and passes the extracted text to Gemini for criteria analysis instead of requiring Gemini URL Context.
+        Also inspects candidate url_context_metadata if present (for mock/backward compatibility).
         """
         if self._is_quota_exhausted or not self.is_available:
             err_msg = "QUOTA_EXHAUSTED" if self._is_quota_exhausted else "GEMINI_API_KEY is not configured."
@@ -259,15 +271,53 @@ Provide:
                 "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
                 "evidence_quality": "UNVERIFIED"
             }
-            
-        urls_formatted = "\n".join([f"- {u}" for u in urls[:settings.MAX_URLS_PER_REQUEST]])
+
+        # Safe page retrieval via SafePageRetriever (Requirement 3)
+        retrieved_content = page_text or ""
+        safe_primary_status = retrieval_status or "URL_RETRIEVAL_STATUS_SUCCESS"
+        safe_is_success = True if page_text else (False if not urls else True)
+
+        if page_text is None and urls:
+            try:
+                ret_result = await safe_page_retriever.retrieve_page(urls[0])
+                safe_primary_status = ret_result.get("status", "URL_RETRIEVAL_STATUS_ERROR")
+                safe_is_success = ret_result.get("success", False)
+                retrieved_content = ret_result.get("text", "")
+            except Exception:
+                safe_primary_status = "URL_RETRIEVAL_STATUS_ERROR"
+                safe_is_success = False
+
+        # If URLs were provided and safe page retrieval failed, return unverified result immediately
+        # without consuming Gemini API quota or making redundant model calls
+        if urls and not safe_is_success and not retrieved_content.strip():
+            return {
+                "success": True,
+                "data": None,
+                "retrieval_metadata": [
+                    {
+                        "retrieved_url": u,
+                        "url_retrieval_status": safe_primary_status,
+                        "is_success": False
+                    }
+                    for u in urls
+                ],
+                "url_retrieval_statuses": {u: safe_primary_status for u in urls},
+                "is_retrieval_successful": False,
+                "retrieval_status": safe_primary_status,
+                "evidence_quality": "UNVERIFIED",
+                "model_used": self.model
+            }
+
+        urls_formatted = "\n".join([f"- {u}" for u in urls[:settings.MAX_URLS_PER_REQUEST]]) if urls else "None provided"
+        content_section = f"\n\nAUTHENTIC OFFICIAL PAGE CONTENT:\n\"\"\"\n{retrieved_content}\n\"\"\"\n" if retrieved_content else ""
+
         prompt = f"""You are the Research & Eligibility Auditor for university admissions and scholarships.
-Analyze the following official webpage URLs using your URL Context retrieval tool:
+Analyze the following official webpage text and details:
 Program: {program_name} at {university}
 
-Official URLs to read:
+Official URLs:
 {urls_formatted}
-
+{content_section}
 Student Profile:
 {student_profile_summary}
 
@@ -323,7 +373,6 @@ Return JSON in this format:
 """
         try:
             config = types.GenerateContentConfig(
-                tools=[types.Tool(url_context=types.UrlContext())],
                 temperature=0.1,
                 response_mime_type="application/json"
             )
@@ -333,64 +382,83 @@ Return JSON in this format:
                 contents=prompt,
                 config=config
             )
-            
-            # Inspect candidate.url_context_metadata and url_retrieval_status
+
+            # Inspect candidate.url_context_metadata if present (from mock or tool)
             retrieval_metadata = []
             retrieval_statuses: Dict[str, str] = {}
             has_retrieval_success = False
             primary_status = "URL_RETRIEVAL_STATUS_UNSPECIFIED"
 
-            if response.candidates and len(response.candidates) > 0:
-                candidate = response.candidates[0]
-                url_context_meta = getattr(candidate, "url_context_metadata", None)
-                if url_context_meta:
-                    metadata_entries = getattr(url_context_meta, "url_metadata", []) or []
-                    for entry in metadata_entries:
-                        retrieved_url = getattr(entry, "retrieved_url", "")
-                        status_enum = getattr(entry, "url_retrieval_status", None)
-                        status_str = status_enum.name if hasattr(status_enum, "name") else (
-                            status_enum.value if hasattr(status_enum, "value") else str(status_enum or "URL_RETRIEVAL_STATUS_UNSPECIFIED")
-                        )
-                        is_success = (
-                            status_str == "URL_RETRIEVAL_STATUS_SUCCESS"
-                            or status_enum == types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
-                        )
-                        if is_success:
-                            has_retrieval_success = True
-                        if primary_status == "URL_RETRIEVAL_STATUS_UNSPECIFIED":
-                            primary_status = status_str
+            candidate = response.candidates[0] if (response.candidates and len(response.candidates) > 0) else None
+            url_context_meta = getattr(candidate, "url_context_metadata", None) if candidate else None
 
-                        retrieval_metadata.append({
-                            "retrieved_url": retrieved_url,
-                            "url_retrieval_status": status_str,
-                            "is_success": is_success
-                        })
-                        if retrieved_url:
-                            retrieval_statuses[retrieved_url] = status_str
+            if url_context_meta:
+                metadata_entries = getattr(url_context_meta, "url_metadata", []) or []
+                for entry in metadata_entries:
+                    retrieved_url = getattr(entry, "retrieved_url", "")
+                    status_enum = getattr(entry, "url_retrieval_status", None)
+                    status_str = status_enum.name if hasattr(status_enum, "name") else (
+                        status_enum.value if hasattr(status_enum, "value") else str(status_enum or "URL_RETRIEVAL_STATUS_UNSPECIFIED")
+                    )
+                    is_success = (
+                        status_str == "URL_RETRIEVAL_STATUS_SUCCESS"
+                        or status_enum == types.UrlRetrievalStatus.URL_RETRIEVAL_STATUS_SUCCESS
+                    )
+                    if is_success:
+                        has_retrieval_success = True
+                    if primary_status == "URL_RETRIEVAL_STATUS_UNSPECIFIED":
+                        primary_status = status_str
 
-            # If no url_context_metadata entries were populated in candidate response
-            if not retrieval_metadata and urls:
-                primary_status = "URL_RETRIEVAL_STATUS_SUCCESS"
-                has_retrieval_success = True
-                for u in urls:
-                    retrieval_statuses[u] = primary_status
                     retrieval_metadata.append({
-                        "retrieved_url": u,
-                        "url_retrieval_status": primary_status,
-                        "is_success": True
+                        "retrieved_url": retrieved_url,
+                        "url_retrieval_status": status_str,
+                        "is_success": is_success
                     })
+                    if retrieved_url:
+                        retrieval_statuses[retrieved_url] = status_str
+            else:
+                # Use SafePageRetriever status when url_context_metadata is not populated
+                if not urls:
+                    primary_status = "URL_RETRIEVAL_STATUS_UNSPECIFIED"
+                    has_retrieval_success = False
+                else:
+                    primary_status = safe_primary_status
+                    has_retrieval_success = safe_is_success
+                    for u in urls:
+                        retrieval_statuses[u] = primary_status
+                        retrieval_metadata.append({
+                            "retrieved_url": u,
+                            "url_retrieval_status": primary_status,
+                            "is_success": has_retrieval_success
+                        })
 
             evidence_quality = "OFFICIAL" if has_retrieval_success else "UNVERIFIED"
 
-            raw_text = (response.text or "").strip()
-            if raw_text.startswith("```json"):
-                raw_text = raw_text[7:]
-            elif raw_text.startswith("```"):
-                raw_text = raw_text[3:]
-            if raw_text.endswith("```"):
-                raw_text = raw_text[:-3]
-            raw_text = raw_text.strip()
-            data = json.loads(raw_text)
+            data = None
+            if has_retrieval_success:
+                raw_text = (response.text or "").strip()
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text[7:]
+                elif raw_text.startswith("```"):
+                    raw_text = raw_text[3:]
+                if raw_text.endswith("```"):
+                    raw_text = raw_text[:-3]
+                raw_text = raw_text.strip()
+                try:
+                    data = json.loads(raw_text)
+                except Exception as exc:
+                    return {
+                        "success": False,
+                        "error": f"URL analysis error: Failed to parse model JSON: {str(exc)}",
+                        "status": "ERROR",
+                        "data": None,
+                        "retrieval_metadata": retrieval_metadata,
+                        "url_retrieval_statuses": {u: "URL_RETRIEVAL_STATUS_ERROR" for u in urls},
+                        "is_retrieval_successful": False,
+                        "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
+                        "evidence_quality": "UNVERIFIED",
+                        "model_used": self.model
+                    }
 
             return {
                 "success": True,
@@ -586,5 +654,6 @@ Return JSON in this format:
 
     # API naming compatibility alias
     review_opportunity_claims = review_evidence_and_claims
+
 
 gemini_service = GeminiService()

@@ -8,6 +8,7 @@ from app.api.profile import router as profile_router
 from app.api.research import router as research_router
 from app.api.opportunities import router as opportunities_router
 from app.services.gemini_service import GeminiConfigurationError
+from app.services.tavily_service import TavilyConfigurationError
 
 app = FastAPI(
     title="ScholarSwarm API",
@@ -24,6 +25,18 @@ async def gemini_configuration_exception_handler(request: Request, exc: GeminiCo
             "error": "GeminiConfigurationError",
             "detail": str(exc),
             "help": "Set the GEMINI_API_KEY environment variable to enable live Gemini discovery and extraction."
+        }
+    )
+
+@app.exception_handler(TavilyConfigurationError)
+async def tavily_configuration_exception_handler(request: Request, exc: TavilyConfigurationError):
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": 503,
+            "error": "TavilyConfigurationError",
+            "detail": str(exc),
+            "help": "Set the TAVILY_API_KEY environment variable to enable live Tavily scholarship discovery."
         }
     )
 

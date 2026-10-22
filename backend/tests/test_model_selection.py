@@ -6,12 +6,13 @@ from app.main import app
 async def test_models_endpoints():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Fetch available models
+        # 1. Fetch available models (only fixed model gemini-3.1-flash-lite)
         res = await client.get("/api/models")
         assert res.status_code == 200
         data = res.json()
         assert "models" in data
-        assert len(data["models"]) >= 5
+        assert len(data["models"]) == 1
+        assert data["models"][0]["id"] == "gemini-3.1-flash-lite"
         
         # Verify models display remaining RPM and status
         for m in data["models"]:
@@ -23,8 +24,8 @@ async def test_models_endpoints():
             assert "status" in m
             assert m["rpm_left"] >= 0
         
-        # 2. Select an available unexhausted model
-        select_res = await client.post("/api/models/select", json={"model": "gemini-2.5-flash"})
+        # 2. Select fixed model
+        select_res = await client.post("/api/models/select", json={"model": "gemini-3.1-flash-lite"})
         assert select_res.status_code == 200
         assert select_res.json()["success"] is True
-        assert select_res.json()["current_model"] == "gemini-2.5-flash"
+        assert select_res.json()["current_model"] == "gemini-3.1-flash-lite"
