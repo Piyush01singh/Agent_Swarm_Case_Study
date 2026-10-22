@@ -1,10 +1,26 @@
-import type { StudentProfile, ResearchRun, Opportunity, ApplicationDraft } from '../types';
+import type { StudentProfile, ResearchRun, Opportunity, ApplicationDraft, GeminiModelOption } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export async function checkHealth() {
   const res = await fetch(`${API_BASE_URL}/api/health`);
   if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function getAvailableModels(): Promise<{ current_model: string; models: GeminiModelOption[] }> {
+  const res = await fetch(`${API_BASE_URL}/api/models`);
+  if (!res.ok) throw new Error(`Failed to fetch models: ${res.statusText}`);
+  return res.json();
+}
+
+export async function selectModel(modelId: string): Promise<{ success: boolean; current_model: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/models/select`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: modelId }),
+  });
+  if (!res.ok) throw new Error(`Failed to select model: ${res.statusText}`);
   return res.json();
 }
 
@@ -20,8 +36,11 @@ export async function extractProfile(formData: FormData) {
   return res.json();
 }
 
-export async function startResearch(profile: StudentProfile): Promise<ResearchRun> {
-  const res = await fetch(`${API_BASE_URL}/api/research/start`, {
+export async function startResearch(profile: StudentProfile, model?: string): Promise<ResearchRun> {
+  const url = model 
+    ? `${API_BASE_URL}/api/research/start?model=${encodeURIComponent(model)}`
+    : `${API_BASE_URL}/api/research/start`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(profile),

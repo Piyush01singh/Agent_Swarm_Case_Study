@@ -54,11 +54,15 @@ async def run_swarm_pipeline(run_id: str, state: SwarmState):
         ))
 
 @router.post("/start", response_model=ResearchRun)
-async def start_research(profile: StudentProfile, background_tasks: BackgroundTasks):
+async def start_research(profile: StudentProfile, background_tasks: BackgroundTasks, model: Optional[str] = None):
     """
     Initiates a multi-agent research run for a student profile.
     Coordinates the 5 agent roles via LangGraph.
     """
+    if model:
+        from app.services.gemini_service import gemini_service
+        gemini_service.set_model(model)
+    
     run_id = str(uuid.uuid4())
     run = ResearchRun(
         id=run_id,

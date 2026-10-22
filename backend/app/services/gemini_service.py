@@ -25,7 +25,15 @@ class GeminiService:
         self.model = model or settings.GEMINI_MODEL
         self._client = None
         self._is_quota_exhausted = False
+        self._exhausted_models = set()
         self._init_client()
+
+    def set_model(self, model_name: str) -> None:
+        """Dynamically switch active Gemini model and update settings."""
+        self.model = model_name
+        settings.GEMINI_MODEL = model_name
+        exhausted_set = getattr(self, "_exhausted_models", set())
+        self._is_quota_exhausted = (model_name in exhausted_set)
 
     def _init_client(self) -> None:
         if self.api_key:
@@ -81,6 +89,7 @@ class GeminiService:
                     "error": err_str
                 }
             elif "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                self._exhausted_models.add(self.model)
                 self._is_quota_exhausted = True
                 return {
                     "authenticated": True,
@@ -212,6 +221,7 @@ Provide:
             err_str = str(e)
             is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
             if is_quota:
+                getattr(self, "_exhausted_models", set()).add(self.model)
                 self._is_quota_exhausted = True
             return {
                 "success": False,
@@ -396,6 +406,7 @@ Return JSON in this format:
             err_str = str(e)
             is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
             if is_quota:
+                getattr(self, "_exhausted_models", set()).add(self.model)
                 self._is_quota_exhausted = True
             return {
                 "success": False,
@@ -547,6 +558,7 @@ Return JSON in this format:
             err_str = str(e)
             is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
             if is_quota:
+                getattr(self, "_exhausted_models", set()).add(self.model)
                 self._is_quota_exhausted = True
                 return {
                     "success": False,

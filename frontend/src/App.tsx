@@ -8,11 +8,21 @@ import {
   Code2,
   RefreshCw,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Zap
 } from 'lucide-react';
-import type { StudentProfile, Opportunity, AgentEvent } from './types';
-import { checkHealth, startResearch, getOpportunities, subscribeToEvents, resetDemoData, getOpportunityDetails } from './api/client';
-import { Navbar } from './components/Navbar';
+import type { StudentProfile, Opportunity, AgentEvent, GeminiModelOption } from './types';
+import {
+  checkHealth,
+  startResearch,
+  getOpportunities,
+  subscribeToEvents,
+  resetDemoData,
+  getOpportunityDetails,
+  getAvailableModels,
+  selectModel
+} from './api/client';
+import { Navbar, DEFAULT_MODELS } from './components/Navbar';
 import { ProfileModal } from './components/ProfileModal';
 import { AgentWorkspace } from './components/AgentWorkspace';
 import { OpportunityCard } from './components/OpportunityCard';
@@ -60,6 +70,7 @@ export const App: React.FC = () => {
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
   const [modelName, setModelName] = useState<string>("gemini-2.5-flash");
+  const [availableModels, setAvailableModels] = useState<GeminiModelOption[]>(DEFAULT_MODELS);
 
   // Filter states
   const [selectedCountry, setSelectedCountry] = useState<string>("ALL");
@@ -70,7 +81,7 @@ export const App: React.FC = () => {
   const [selectedEvidenceOpp, setSelectedEvidenceOpp] = useState<Opportunity | null>(null);
   const [selectedSopOpp, setSelectedSopOpp] = useState<Opportunity | null>(null);
 
-  // Initial Health Check
+  // Initial Health Check & Model Discovery
   useEffect(() => {
     checkHealth()
       .then((data) => {
@@ -78,10 +89,41 @@ export const App: React.FC = () => {
         if (data.gemini_model) setModelName(data.gemini_model);
       })
       .catch(() => setIsHealthy(false));
+
+    getAvailableModels()
+      .then((data) => {
+        if (data.models && data.models.length > 0) {
+          setAvailableModels(data.models);
+        }
+        if (data.current_model) {
+          setModelName(data.current_model);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not fetch models dynamically, using defaults:", err);
+      });
   }, []);
 
+  const handleModelChange = async (newModelId: string) => {
+    setModelName(newModelId);
+    try {
+      await selectModel(newModelId);
+    } catch (e) {
+      console.warn("Failed to notify backend of model change:", e);
+    }
+
+    const chosen = availableModels.find((m) => m.id === newModelId);
+    if (chosen && chosen.rpm_left > 0) {
+      if (currentPhase === "QUOTA_EXHAUSTED") {
+        setCurrentPhase("STANDBY");
+        setEvents((prev) => prev.filter((ev) => ev.event_type !== "QUOTA_EXHAUSTED" && !ev.title.includes("Quota")));
+      }
+    }
+  };
+
   // Launch Multi-Agent Research
-  const handleStartResearch = async (updatedProfile: StudentProfile) => {
+  const handleStartResearch = async (updatedProfile: StudentProfile, overrideModel?: string) => {
+    const activeModel = overrideModel || modelName;
     setProfile(updatedProfile);
     setIsProfileModalOpen(false);
     setEvents([]);
@@ -90,7 +132,7 @@ export const App: React.FC = () => {
     setCurrentPhase("STARTING");
 
     try {
-      const run = await startResearch(updatedProfile);
+      const run = await startResearch(updatedProfile, activeModel);
       setCurrentRunId(run.id);
       setCurrentPhase("PROFILE_INTELLIGENCE");
 
@@ -195,6 +237,8 @@ export const App: React.FC = () => {
         onOpenProfile={() => setIsProfileModalOpen(true)}
         isHealthy={isHealthy}
         modelName={modelName}
+        availableModels={availableModels}
+        onSelectModel={handleModelChange}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -349,8 +393,47 @@ export const App: React.FC = () => {
                   </div>
                   <h3 className="text-lg font-bold text-white">Gemini API Quota Exhausted</h3>
                   <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
-                    Live Google Search grounding and official URL Context extraction could not proceed because the Google Gen AI API quota limit has been reached. ScholarSwarm enforces strict research integrity and will not fabricate synthetic opportunities.
+                    Live Google Search grounding and official URL Context extraction could not proceed because the Google Gen AI API quota limit has been reached for <span className="font-mono text-rose-400 font-semibold">{modelName}</span>. ScholarSwarm enforces strict research integrity and will not fabricate synthetic opportunities.
                   </p>
+
+                  {/* Switch Model to unexhausted model */}
+                  <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 text-left max-w-lg mx-auto space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                        <Zap className="h-3.5 w-3.5 text-cyan-400" />
+                        Available Models (Unexhausted RPM)
+                      </span>
+                      <span className="text-[10px] text-slate-400">Click to switch & start search</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {availableModels.filter(m => m.rpm_left > 0).map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => {
+                            handleModelChange(m.id);
+                            handleStartResearch(profile, m.id);
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition flex items-center justify-between gap-2 ${
+                            m.id === modelName
+                              ? 'bg-emerald-950/50 border-emerald-500/50'
+                              : 'bg-slate-900/60 border-slate-800 hover:border-emerald-500/50 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-white truncate">{m.name}</div>
+                            <div className="text-[10px] text-emerald-400 font-medium">
+                              {m.rpm_left}/{m.rpm_limit} RPM left
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shrink-0">
+                            Start &rarr;
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="pt-2 flex items-center justify-center gap-3">
                     <button
                       onClick={() => setIsProfileModalOpen(true)}
@@ -359,10 +442,10 @@ export const App: React.FC = () => {
                       Configure Profile
                     </button>
                     <button
-                      onClick={() => handleStartResearch(profile)}
+                      onClick={() => handleStartResearch(profile, modelName)}
                       className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-1.5"
                     >
-                      <RefreshCw className="h-3.5 w-3.5" /> Retry Research
+                      <RefreshCw className="h-3.5 w-3.5" /> Start Scholarship Search with {modelName}
                     </button>
                   </div>
                 </>

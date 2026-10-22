@@ -138,3 +138,15 @@ export interface ApplicationDraft {
   reviewer_feedback?: string;
   word_count: number;
 }
+
+export interface GeminiModelOption {
+  id: string;
+  name: string;
+  category: string;
+  rpm_limit: number;
+  rpm_used: number;
+  rpm_left: number;
+  status: 'available' | 'exhausted';
+  badge?: string;
+}
+
