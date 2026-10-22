@@ -6,7 +6,9 @@ import {
   Globe2,
   User,
   Code2,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 import type { StudentProfile, Opportunity, AgentEvent } from './types';
 import { checkHealth, startResearch, getOpportunities, subscribeToEvents, resetDemoData, getOpportunityDetails } from './api/client';
@@ -97,7 +99,13 @@ export const App: React.FC = () => {
         run.id,
         (event: AgentEvent) => {
           setEvents((prev) => [...prev, event]);
-          if (event.event_type.includes("SEARCH") || event.event_type.includes("DISCOVERY") || event.event_type.includes("CANDIDATE")) {
+          if (event.event_type === "QUOTA_EXHAUSTED") {
+            setCurrentPhase("QUOTA_EXHAUSTED");
+          } else if (event.event_type === "DISCOVERY_EMPTY") {
+            setCurrentPhase("DISCOVERY_EMPTY");
+          } else if (event.event_type === "ERROR") {
+            setCurrentPhase("ERROR");
+          } else if (event.event_type.includes("SEARCH") || event.event_type === "DISCOVERY_STARTED" || event.event_type.includes("CANDIDATE") || (event.event_type.includes("DISCOVERY") && event.event_type !== "DISCOVERY_EMPTY")) {
             setCurrentPhase("DISCOVERY");
           } else if (event.event_type.includes("SCORE") || event.event_type.includes("SHORTLIST")) {
             setCurrentPhase("RANKING");
@@ -329,8 +337,78 @@ export const App: React.FC = () => {
           )}
 
           {opportunities.length === 0 && (
-            <div className="p-12 text-center rounded-2xl bg-slate-900/40 border border-slate-800 space-y-4">
-              {currentPhase !== "STANDBY" && !isCompleted ? (
+            <div className="p-8 sm:p-12 text-center rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 shadow-xl">
+              {/* 1. API Quota Exhausted State */}
+              {currentPhase === "QUOTA_EXHAUSTED" || events.some(e => e.event_type === "QUOTA_EXHAUSTED" || e.title.includes("Quota")) ? (
+                <>
+                  <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mx-auto">
+                    <AlertTriangle className="h-6 w-6" />
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold">
+                    429 RESOURCE_EXHAUSTED
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Gemini API Quota Exhausted</h3>
+                  <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+                    Live Google Search grounding and official URL Context extraction could not proceed because the Google Gen AI API quota limit has been reached. ScholarSwarm enforces strict research integrity and will not fabricate synthetic opportunities.
+                  </p>
+                  <div className="pt-2 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => setIsProfileModalOpen(true)}
+                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition"
+                    >
+                      Configure Profile
+                    </button>
+                    <button
+                      onClick={() => handleStartResearch(profile)}
+                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Retry Research
+                    </button>
+                  </div>
+                </>
+              ) : currentPhase === "DISCOVERY_EMPTY" || events.some(e => e.event_type === "DISCOVERY_EMPTY") ? (
+                /* 2. Honest Empty Discovery State */
+                <>
+                  <div className="h-12 w-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mx-auto">
+                    <Search className="h-6 w-6" />
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold">
+                    0 Programs Found
+                  </div>
+                  <h3 className="text-lg font-bold text-white">No Matching Programs Discovered</h3>
+                  <p className="text-xs text-slate-300 max-w-lg mx-auto leading-relaxed">
+                    Live Gemini Google Search grounding returned zero candidate degree programs matching your criteria across {profile.target_countries.join(', ')}. In accordance with our research integrity policy, no dummy or synthetic records were substituted.
+                  </p>
+                  <div className="pt-2 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => setIsProfileModalOpen(true)}
+                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition"
+                    >
+                      Adjust Target Countries / Field
+                    </button>
+                  </div>
+                </>
+              ) : currentPhase === "ERROR" || events.some(e => e.event_type === "ERROR") ? (
+                /* 3. Explicit Workflow Error State (Fixes Infinite Spinner) */
+                <>
+                  <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mx-auto">
+                    <AlertCircle className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white">Research Workflow Interrupted</h3>
+                  <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
+                    An error occurred while executing the multi-agent research swarm. Please review the system event log or retry.
+                  </p>
+                  <div className="pt-2">
+                    <button
+                      onClick={() => handleStartResearch(profile)}
+                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-700/20 transition inline-flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" /> Restart Research
+                    </button>
+                  </div>
+                </>
+              ) : currentPhase !== "STANDBY" && !isCompleted ? (
+                /* 4. Active In-Progress Execution */
                 <>
                   <RefreshCw className="h-10 w-10 text-emerald-400 mx-auto animate-spin" />
                   <h3 className="text-base font-bold text-white">ScholarSwarm Research Cycle in Progress</h3>
@@ -339,9 +417,10 @@ export const App: React.FC = () => {
                   </p>
                 </>
               ) : (
+                /* 5. Initial Standby State */
                 <>
                   <GraduationCap className="h-10 w-10 text-emerald-400 mx-auto" />
-                  <h3 className="text-base font-bold text-white">No research results in current session</h3>
+                  <h3 className="text-base font-bold text-white">Ready to Discover Scholarships</h3>
                   <p className="text-xs text-slate-400 max-w-md mx-auto">
                     Launch the 5-agent research cycle to discover live scholarships across Canada, Germany, and Singapore tailored to your profile.
                   </p>

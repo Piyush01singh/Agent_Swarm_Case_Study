@@ -14,55 +14,63 @@ from app.config import settings
 
 def extract_numeric_cgpa_cutoff(requirement_text: str) -> Optional[float]:
     """
-    Feature F6: Extracts program-specific numeric CGPA / percentage requirement
-    from published criteria text, eliminating broad country-wide heuristics.
+    Feature F6 & R3: Extracts program-specific numeric CGPA cutoff
+    from published criteria text without applying ungrounded conversion formulas.
+    Returns the explicitly published numeric cutoff for 10-point scale or standalone CGPA > 4.0.
+    Does not invent 4.0-to-10.0 scaling, percentage divisions, or qualitative mappings.
     """
     if not requirement_text:
         return None
 
-    # Pattern 1: explicit X/10 or X/4
-    scale_match = re.search(r'(\d+(?:\.\d+)?)\s*/\s*(10(?:\.0)?|4(?:\.0)?)', requirement_text, re.I)
-    if scale_match:
-        val = float(scale_match.group(1))
-        scale = float(scale_match.group(2))
-        if scale == 4.0:
-            return round((val / 4.0) * 10.0, 2)
-        return val
+    # Check for explicit published 10-point scale equivalency first
+    # e.g. '8.0/10.0 CGPA', 'typically 8.0/10', 'Minimum B average (7.0/10) required'
+    explicit_10 = re.search(r'(\d+(?:\.\d+)?)\s*/\s*10(?:\.0)?', requirement_text, re.I)
+    if explicit_10:
+        return float(explicit_10.group(1))
 
-    # Pattern 2a: X.X CGPA or ~X.X CGPA, e.g. '8.0 CGPA', '~8.0 CGPA', '8.0+ CGPA'
-    pre_cgpa = re.search(r'(?:~|approx\.?|minimum|at least)?\s*(\d+\.\d+)\s*\+?\s*(?:cgpa|gpa)', requirement_text, re.I)
-    if pre_cgpa:
-        val = float(pre_cgpa.group(1))
-        if val <= 4.0:
-            return round((val / 4.0) * 10.0, 2)
-        return val
-
-    # Pattern 2b: standalone CGPA after keyword, e.g. 'minimum 7.5 CGPA', 'CGPA of 8.0'
+    # Pattern: standalone 10-point CGPA after keyword (e.g. 'minimum 7.5 CGPA', 'CGPA of 8.0')
+    # Valid only if > 4.0 (i.e. not an ungrounded 4.0 scale cutoff)
     cgpa_match = re.search(r'(?:cgpa|gpa|average|minimum)\s*(?:of|is|:|~)?\s*(\d+\.\d+)', requirement_text, re.I)
     if cgpa_match:
         val = float(cgpa_match.group(1))
-        if val <= 4.0:
-            return round((val / 4.0) * 10.0, 2)
-        return val
+        if val > 4.0:
+            return val
 
-    # Pattern 2c: percentage standing, e.g. '78% overall standing'
-    pct_match = re.search(r'(\d{2}(?:\.\d+)?)\s*%\s*(?:overall|standing|average|marks)?', requirement_text, re.I)
-    if pct_match:
-        pct = float(pct_match.group(1))
-        return round((pct / 10.0), 2)
+    # Pattern: X.X+ CGPA (e.g. '8.0+ CGPA', '7.8 CGPA')
+    pre_cgpa = re.search(r'(?:~|approx\.?|minimum|at least)?\s*(\d+\.\d+)\s*\+?\s*(?:cgpa|gpa)', requirement_text, re.I)
+    if pre_cgpa:
+        val = float(pre_cgpa.group(1))
+        if val > 4.0:
+            return val
 
-    # Pattern 3: qualitative descriptors with standard equivalencies
-    req_lower = requirement_text.lower()
-    if "first class with distinction" in req_lower:
-        return 8.0
-    if "first class honours" in req_lower or "first class" in req_lower or "b+ average" in req_lower:
-        return 7.5
-    if "second upper" in req_lower or "second class upper" in req_lower:
-        return 7.5
-    if "b average" in req_lower or "b minimum" in req_lower:
-        return 7.0
-
+    # All qualitative descriptors without published 10-point figures, 4.0-scale figures without 10-point equivalency,
+    # and ungrounded percentages return None
     return None
+
+
+def extract_raw_grade_cutoffs_and_scales(requirement_text: str) -> List[Tuple[float, float]]:
+    """
+    R3 Helper: Extracts all (cutoff, scale) pairs from requirement text
+    (e.g. '7.5/10 CGPA or 3.0/4.0 GPA' -> [(7.5, 10.0), (3.0, 4.0)])
+    without applying arbitrary scaling.
+    """
+    if not requirement_text:
+        return []
+    matches = re.findall(r'(\d+(?:\.\d+)?)\s*/\s*(10(?:\.0)?|4(?:\.0)?)', requirement_text, re.I)
+    results = [(float(val), float(scale)) for val, scale in matches]
+    if not results:
+        cgpa_10 = extract_numeric_cgpa_cutoff(requirement_text)
+        if cgpa_10 is not None:
+            results.append((cgpa_10, 10.0))
+    return results
+
+
+def extract_raw_grade_cutoff_and_scale(requirement_text: str) -> Tuple[Optional[float], Optional[float]]:
+    """
+    R3 Helper: Returns primary (cutoff, scale) pair or (None, None).
+    """
+    pairs = extract_raw_grade_cutoffs_and_scales(requirement_text)
+    return pairs[0] if pairs else (None, None)
 
 
 def extract_language_cutoff(requirement_text: str, test_type: str = "ielts") -> Optional[float]:
@@ -136,30 +144,51 @@ def evaluate_single_criterion(
 
     req_lower = req_text.lower()
 
-    # 1. Academic Grade Evaluation (F6)
+    # 1. Academic Grade Evaluation (F6 & R3)
     if crit_type in ("ACADEMIC_GRADE", "CGPA", "GRADE") or any(k in req_lower for k in ["cgpa", "gpa", "grade", "average", "b+", "first class", "honours"]):
-        required_cgpa = extract_numeric_cgpa_cutoff(req_text)
         student_cgpa = profile.cgpa
+        student_scale_str = str(getattr(profile, "grading_scale", "10.0")).strip()
+        try:
+            student_scale = float(student_scale_str)
+        except ValueError:
+            student_scale = 10.0
+
         student_val = f"Student CGPA: {student_cgpa}/{profile.grading_scale} from {profile.institution}"
 
-        if required_cgpa is not None:
-            effective_student_cgpa = student_cgpa
-            if str(getattr(profile, "grading_scale", "")).strip() == "4.0" and student_cgpa is not None:
-                effective_student_cgpa = (student_cgpa / 4.0) * 10.0
-
-            if effective_student_cgpa is not None and effective_student_cgpa >= required_cgpa:
-                status = "MEETS"
-            else:
-                status = "DOES_NOT_MEET"
-                actionable_gap = f"Student CGPA {student_cgpa}/{profile.grading_scale} is below the program minimum entrance cutoff ({req_text})."
+        # 1. Official institution equivalency note takes precedence
+        if official_note:
+            status = "MEETS"
+            uncertainty_note = official_note
+            actionable_gap = None
         else:
-            if official_note:
-                status = "MEETS"
-                uncertainty_note = official_note
+            pairs = extract_raw_grade_cutoffs_and_scales(req_text)
+            matching_pair = next((p for p in pairs if p[1] == student_scale), None)
+            if matching_pair:
+                raw_cutoff, req_scale = matching_pair
+                if student_cgpa is not None and student_cgpa >= raw_cutoff:
+                    status = "MEETS"
+                else:
+                    status = "DOES_NOT_MEET"
+                    actionable_gap = f"Student CGPA {student_cgpa}/{profile.grading_scale} is below the program minimum entrance cutoff ({req_text})."
+            elif pairs:
+                raw_cutoff, req_scale = pairs[0]
+                status = "UNRESOLVED"
+                uncertainty_note = (
+                    f"Program requirement specifies {raw_cutoff}/{req_scale} while applicant credentials are on "
+                    f"{student_scale} scale. No published institutional equivalency provided."
+                )
+                actionable_gap = (
+                    f"Verify institutional grade conversion for {profile.institution} "
+                    f"({student_scale} scale) with admissions office ({req_text})."
+                )
             else:
                 status = "UNRESOLVED"
-                uncertainty_note = "Program requirement lacks explicit conversion threshold for applicant's grading scale; institutional equivalency must be verified."
-                actionable_gap = f"Verify institutional grade conversion for {profile.institution} with admissions office ({req_text})."
+                uncertainty_note = (
+                    "Program requirement lacks published numeric threshold or equivalency formula for applicant's grading scale; institutional equivalency must be verified."
+                )
+                actionable_gap = (
+                    f"Verify institutional grade conversion for {profile.institution} with admissions office ({req_text})."
+                )
 
     # 2. Language Proficiency Evaluation (F6 & F7)
     elif crit_type in ("LANGUAGE_TEST", "ENGLISH_PROFICIENCY", "LANGUAGE") or any(k in req_lower for k in ["ielts", "toefl", "language", "english"]):
@@ -286,9 +315,32 @@ class ResearchEligibilityAgent:
             )
 
             if reviewer_issues and research_round > 1:
-                issue_text = " ".join([str(issue.get("issue", issue)) if isinstance(issue, dict) else str(issue) for issue in reviewer_issues])
-                if issue_text:
-                    query += f" official admissions {issue_text[:80]}"
+                # Feature R4: Construct clean, targeted queries without concatenating student failure reasons
+                targeted_elements = []
+                for issue in reviewer_issues:
+                    if isinstance(issue, dict):
+                        univ = issue.get("university")
+                        prog = issue.get("program_name")
+                        issue_type = issue.get("issue_type")
+                        
+                        target_tokens = []
+                        if univ:
+                            target_tokens.append(f'"{univ}"')
+                        if prog and prog != univ:
+                            target_tokens.append(f'"{prog}"')
+                        
+                        if issue_type == "SECONDARY_SOURCE":
+                            target_tokens.append("official portal admission")
+                        elif issue_type == "EXPIRED_DEADLINE":
+                            target_tokens.append("admissions deadline current intake")
+                        elif issue_type in ("MANDATORY_CRITERIA_FAILED", "AUDIT_FAILURE"):
+                            target_tokens.append("degree admission requirements")
+                        
+                        if target_tokens:
+                            targeted_elements.append(" ".join(target_tokens))
+
+                if targeted_elements:
+                    query = f"official site:edu OR site:gov OR site:ac {targeted_elements[0]} {country}"
 
             await repository.save_agent_event(AgentEvent(
                 run_id=run_id,
@@ -355,19 +407,16 @@ class ResearchEligibilityAgent:
                     metadata={"country": country}
                 ))
 
-        # Check if any candidates were discovered; fall back to verified registry if search yielded 0
+        # Check if any candidates were discovered; emit DISCOVERY_EMPTY or QUOTA_EXHAUSTED if 0
         if not candidate_sources:
-            from app.services.discovery_registry import get_verified_candidates_for_countries
-            fallback_candidates = get_verified_candidates_for_countries(profile.target_countries)
-            if fallback_candidates:
-                candidate_sources = fallback_candidates
+            if getattr(gemini_service, "_is_quota_exhausted", False):
                 await repository.save_agent_event(AgentEvent(
                     run_id=run_id,
                     agent_role=self.role_name,
-                    event_type="DISCOVERY_FALLBACK",
-                    title="Using Verified Institutional Portals",
-                    description=f"Retrieved {len(candidate_sources)} verified official scholarship and degree programs across {', '.join(profile.target_countries)}.",
-                    metadata={"countries": profile.target_countries, "count": len(candidate_sources)}
+                    event_type="QUOTA_EXHAUSTED",
+                    title="Gemini API Quota Exhausted",
+                    description="Gemini API rate limit or quota exhausted during live grounded search. No synthetic fallback used.",
+                    metadata={"countries": profile.target_countries}
                 ))
             else:
                 await repository.save_agent_event(AgentEvent(
@@ -378,7 +427,7 @@ class ResearchEligibilityAgent:
                     description="Live search grounding did not return candidate URLs for the specified criteria.",
                     metadata={"countries": profile.target_countries}
                 ))
-                return []
+            return []
 
         # Bound candidates to configured limit
         max_candidates = getattr(settings, "MAX_RESEARCH_CANDIDATES", 30)

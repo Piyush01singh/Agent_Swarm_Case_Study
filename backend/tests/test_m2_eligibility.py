@@ -39,12 +39,12 @@ from app.security.sanitizer import (
 # ==============================================================================
 
 def test_f6_extract_numeric_cgpa_cutoff_various_formats():
-    """F6: Tests numeric CGPA extraction across diverse university requirement formats."""
+    """F6 & R3: Tests numeric CGPA extraction across diverse university requirement formats without ungrounded scaling."""
     assert extract_numeric_cgpa_cutoff("Minimum 8.0/10.0 CGPA from recognized Indian institutions") == 8.0
-    assert extract_numeric_cgpa_cutoff("Minimum 3.2/4.0 GPA in Computer Science") == 8.0 # scaled to 10
+    assert extract_numeric_cgpa_cutoff("Minimum 3.2/4.0 GPA in Computer Science") is None  # ungrounded scale without published 10-point equivalency
     assert extract_numeric_cgpa_cutoff("Applicant must hold a minimum 7.5 CGPA") == 7.5
     assert extract_numeric_cgpa_cutoff("Requires First Class with Distinction (typically 8.0/10)") == 8.0
-    assert extract_numeric_cgpa_cutoff("Requires Second Upper Class Honours / B+ average") == 7.5
+    assert extract_numeric_cgpa_cutoff("Requires Second Upper Class Honours / B+ average") is None  # ungrounded qualitative mapping returns None
     assert extract_numeric_cgpa_cutoff("Minimum B average (7.0/10) required") == 7.0
     assert extract_numeric_cgpa_cutoff("Holistic assessment based on portfolio and statement") is None
 
@@ -595,21 +595,15 @@ async def test_f10_quality_reviewer_flags_secondary_domain_and_triggers_reresear
 
 def test_f6_grading_scale_4_point_scale_normalized_to_10():
     """
-    F6: When student profile grading_scale is '4.0', their CGPA is normalized to
-    10.0 scale ((profile.cgpa / 4.0) * 10.0) before comparing against cutoffs.
+    R3: When student profile grading_scale is '4.0' and requirement is '10.0' without
+    published institution equivalency, criterion resolves to UNRESOLVED with actionable gap.
     """
-    # 3.8 / 4.0 = 9.5 / 10.0, which satisfies 8.0 requirement
-    profile_meets = StudentProfile(cgpa=3.8, grading_scale="4.0", institution="US College")
+    profile_mismatch = StudentProfile(cgpa=3.8, grading_scale="4.0", institution="US College")
     criterion = {"criterion_type": "ACADEMIC_GRADE", "stated_requirement": "Minimum 8.0/10 CGPA required"}
-    res_meets = evaluate_single_criterion(criterion, profile_meets, is_admission=True)
-    assert res_meets["status"] == "MEETS"
-    assert res_meets["actionable_gap"] is None
-
-    # 2.8 / 4.0 = 7.0 / 10.0, which is below 8.0 requirement
-    profile_fails = StudentProfile(cgpa=2.8, grading_scale="4.0", institution="US College")
-    res_fails = evaluate_single_criterion(criterion, profile_fails, is_admission=True)
-    assert res_fails["status"] == "DOES_NOT_MEET"
-    assert "below the program minimum entrance cutoff" in res_fails["actionable_gap"]
+    res_mismatch = evaluate_single_criterion(criterion, profile_mismatch, is_admission=True)
+    assert res_mismatch["status"] == "UNRESOLVED"
+    assert res_mismatch["actionable_gap"] is not None
+    assert "Verify institutional grade conversion" in res_mismatch["actionable_gap"]
 
 
 def test_f8_failing_optional_scholarship_remains_eligible_for_admission_shortlist():

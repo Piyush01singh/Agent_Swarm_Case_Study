@@ -28,6 +28,11 @@ The evaluation harness executes a comparative empirical benchmark across 10 docu
 
 *Benchmark Execution Mode: `deterministic_mock` | Test Cases: `10` | Generated: `2026-10-21T07:40:09.344902+00:00`*
 
+> **Benchmark Transparency & Simulation Disclaimer**:
+> All latency metrics and performance results reported in this document were measured using the automated in-memory evaluation harness (`backend/scripts/evaluate_harness.py`). They represent **deterministic simulated benchmark execution** designed to evaluate agent routing, self-correction logic, and classification accuracy in an isolated, reproducible offline environment without consuming API quotas.
+> 
+> These numbers do **NOT** reflect live Google Gemini API network latency or live web scraping turnaround times, which typically range from 1 to 5 seconds per round in production.
+
 | Metric | Single Pass (Baseline) | Self-Correcting (ScholarSwarm) | Delta / Improvement |
 |---|---:|---:|---:|
 | **Critical Claims Grounded in Official Sources** | 70.0% | **80.0%** | **+10.0%** |
@@ -35,8 +40,10 @@ The evaluation harness executes a comparative empirical benchmark across 10 docu
 | **False-Positive Admissions Pass Rate** | 50.0% | **0.0%** | **-50.0% (Eliminated)** |
 | **Unsupported Funding Claims Flagged & Rectified** | 0/1 (0.0%) | **1/1 (100.0%)** | **+100.0%** |
 | **Fault Recovery under Injected Network/URL Block** | 0.0% | **100.0%** | **+100.0%** |
-| **Mean End-to-End Latency** | 4e-05s | 0.000195s | +0.000155s |
+| **Mean Simulated Routing Latency (In-Memory Harness)** * | 4e-05s | 0.000195s | +0.000155s |
 | **Mean Additional Pipeline Rounds** | 1.0 rounds | 1.3 rounds | +0.3 rounds |
+
+*\* Deterministic mock harness execution measuring CPU routing overhead without external network latency.*
 
 ---
 
@@ -55,8 +62,8 @@ The evaluation harness executes a comparative empirical benchmark across 10 docu
 4. **Fault Recovery & Safety Containment**:
    - Injected network faults (HTTP 404 in CASE-07) and SSRF exploit URLs (CASE-08 `http://169.254.169.254`) caused failures in baseline passes, whereas the self-correcting pipeline achieved **100% fault recovery** through proactive URL sanitization and graceful error states.
 
-5. **Bounded Latency Trade-Off**:
-   - The self-correction loop added only ~+0.3 rounds and modest latency overhead (+0.000155s), satisfying responsive user interaction standards.
+5. **Bounded Algorithmic Routing Overhead (Simulated In-Memory)**:
+   - The self-correction loop added only ~+0.3 rounds and negligible CPU routing overhead (+0.000155s in-memory), demonstrating efficient state transition mechanics. In live production execution, total duration is bounded strictly by the 2-round iteration ceiling.
 
 ---
 

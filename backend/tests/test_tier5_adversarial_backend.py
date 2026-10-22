@@ -137,24 +137,40 @@ class TestEdgeCaseEligibilityMatching:
     """Stress-tests criterion evaluation against extreme, boundary, and malformed inputs."""
 
     @pytest.mark.parametrize("req_text, expected_cutoff", [
-        ("Minimum 3.0/4.0 CGPA", 7.5),
-        ("Minimum 3.5/4.0 GPA", 8.75),
-        ("Minimum 4.0/4.0 scale", 10.0),
+        ("Minimum 3.0/4.0 CGPA", None),
+        ("Minimum 3.5/4.0 GPA", None),
+        ("Minimum 4.0/4.0 scale", None),
         ("Minimum 8.0/10 CGPA", 8.0),
-        ("Minimum 3.2 CGPA", 8.0),              # Standalone <= 4.0 normalized to 10 scale: (3.2/4)*10 = 8.0
+        ("Minimum 3.2 CGPA", None),              # Standalone <= 4.0 without scale returns None (no invented 10 scale conversion)
         ("Minimum 7.8 CGPA", 7.8),              # Standalone > 4.0 preserved on 10 scale
-        ("78% overall standing", 7.8),          # Percentage converted to 10 scale
-        ("First class honours", 7.5),           # Qualitative benchmark
-        ("First Class with Distinction", 8.0),  # Qualitative benchmark
-        ("Second class upper", 7.5),            # Qualitative benchmark
-        ("B+ average", 7.5),                    # Qualitative benchmark
-        ("B average", 7.0),                     # Qualitative benchmark
+        ("78% overall standing", None),          # Percentage without published equivalency returns None
+        ("First class honours", None),           # Qualitative benchmark without published equivalency returns None
+        ("First Class with Distinction", None),  # Qualitative benchmark without published equivalency returns None
+        ("Second class upper", None),            # Qualitative benchmark without published equivalency returns None
+        ("B+ average", None),                    # Qualitative benchmark without published equivalency returns None
+        ("B average", None),                     # Qualitative benchmark without published equivalency returns None
         ("High standing evaluated case-by-case", None), # Unspecified threshold
         ("", None),
     ])
     def test_cgpa_cutoff_extraction_formats(self, req_text, expected_cutoff):
         """Empirically checks extraction and normalization across diverse international formats."""
         assert extract_numeric_cgpa_cutoff(req_text) == expected_cutoff
+
+    def test_scale_mismatch_without_published_equivalency_resolves_unresolved(self):
+        """Student on 10.0 scale evaluated against 4.0 requirement resolves UNRESOLVED without invented scaling."""
+        profile = StudentProfile(
+            full_name="Scale Mismatch Tester",
+            cgpa=8.2,
+            grading_scale="10.0",
+            target_degree="Master of Science",
+            target_field="Computer Science",
+            target_countries=["Canada"]
+        )
+        crit = {"criterion_type": "ACADEMIC_GRADE", "stated_requirement": "Minimum 3.2/4.0 GPA in Computer Science"}
+        res = evaluate_single_criterion(crit, profile, is_admission=True)
+        assert res["status"] == "UNRESOLVED"
+        assert res["actionable_gap"] is not None
+        assert "Verify institutional grade conversion" in res["actionable_gap"]
 
     def test_boundary_cgpa_evaluation_exact_cutoff_meets(self):
         """Student with exactly 3.0/4.0 meets a 3.0/4.0 minimum entrance requirement."""

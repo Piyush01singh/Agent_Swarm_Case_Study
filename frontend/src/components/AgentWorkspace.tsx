@@ -144,8 +144,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             </div>
           ) : (
             events.map((ev, index) => {
-              const isFlag = ev.event_type.includes("FLAG") || ev.event_type.includes("ERROR");
-              const isRetry = ev.event_type.includes("RETRY");
+              const isFlag = ev.event_type.includes("FLAG") || ev.event_type.includes("ERROR") || ev.event_type.includes("EXHAUSTED");
+              const isRetry = ev.event_type.includes("RETRY") || ev.event_type.includes("WARNING") || ev.event_type.includes("EMPTY");
               const isMatch = ev.event_type.includes("RANKED") || ev.event_type.includes("COMPLETED");
 
               return (

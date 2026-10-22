@@ -12,7 +12,7 @@ ScholarSwarm replaces generic search portals and hallucinating chatbots with an 
    - **Profile Intelligence Agent**: Extracts credentials locally from PDF/DOCX resumes and transcripts; enriches profile with public GitHub repositories.
    - **Research & Eligibility Agent**: Conducts live Gemini Google Search grounding across Canada, Germany, and Singapore, auditing official portal requirements.
    - **Match Strategist Agent**: Calculates deterministic 0-100 fit scores with hard eligibility disqualifier filters.
-   - **Application Coach Agent**: Drafts tailored, editable Statements of Purpose without inventing accomplishments.
+   - **Application Coach Agent**: Operates on-demand when a user selects a matched candidate to draft a tailored, editable Statement of Purpose without inventing accomplishments.
    - **Quality Reviewer Agent**: Adversarially challenges evidence, verifies source domains, and triggers bounded self-correction loops.
 2. **Criterion-Level Evidence Auditing**:
    - Stated university policy, student metric comparison, official URL citation, and check timestamp recorded for every criterion.
@@ -140,7 +140,9 @@ ScholarSwarm includes a 21-test automated suite testing models, document parsers
 cd backend
 python -m pytest tests -v
 ```
-**Test Results**: `21 passed in ~8 seconds` (100% pass rate).
+**Test Results**: `286 passed` offline with 100% pass rate.
+
+*Note on Performance Benchmarks*: The empirical evaluation harness (`backend/scripts/evaluate_harness.py`) executes in deterministic simulated benchmark mode to provide reproducible, offline verification of agent routing, classification accuracy, and fault recovery without consuming personal Gemini API quota.
 
 To verify the production frontend build:
 ```bash
@@ -191,7 +193,7 @@ Builds cleanly into `frontend/dist/` in under 9 seconds.
 ## 📚 Deliverables & Documentation Index
 
 - [Architecture & Design Details](docs/ARCHITECTURE.md)
-- [Self-Correction Empirical Experiment](docs/EXPERIMENT.md)
+- [Self-Correction Empirical Experiment (Deterministic Simulated Benchmarks)](docs/EXPERIMENT.md)
 - [Real Engineering Challenges & Debugging](docs/CHALLENGES.md)
 - [Interview & Defense Q&A (20 Questions)](docs/INTERVIEW_PREP.md)
 - [5-Minute Hackathon Demonstration Script](docs/DEMO_SCRIPT.md)

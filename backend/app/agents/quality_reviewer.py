@@ -248,6 +248,11 @@ class QualityReviewerAgent:
                                     "description": issue_text,
                                     "issue": issue_text
                                 }))
+                else:
+                    # R2: If quota exhausted or audit uncompleted, mark status UNRESOLVED (fail-closed)
+                    candidate.reviewer_status = "UNRESOLVED"
+                    err_code = audit_res.get("error", "QUOTA_EXHAUSTED")
+                    candidate.reviewer_notes = f"Quality review unreviewed / unresolved ({err_code})."
 
         await repository.save_agent_event(AgentEvent(
             run_id=run_id,

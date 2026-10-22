@@ -89,10 +89,20 @@ Upon completing my degree, I intend to {profile.career_goals}. I am confident th
 Sincerely,
 {profile.full_name}
 """
+        lang_info = profile.language_tests if isinstance(profile.language_tests, dict) else {}
+        actual_test = lang_info.get("test") or "standardized examination"
+        test_score = lang_info.get("score")
+        test_status = (lang_info.get("status") or "planned").lower()
+
+        if test_status == "planned" or test_score is None:
+            test_verification_note = f"Ensure planned {actual_test} examination is scheduled prior to {opportunity.deadline or 'application deadline'}."
+        else:
+            test_verification_note = f"Verify official {actual_test} score report ({test_score}) is received prior to {opportunity.deadline or 'application deadline'}."
+
         unconfirmed = [
             f"Confirm specific faculty members or laboratories at {opportunity.university} you wish to collaborate with.",
             "Verify whether any unpublished undergraduate research paper drafts should be referenced.",
-            f"Ensure planned language proficiency test (IELTS) is scheduled prior to {opportunity.deadline or 'application deadline'}."
+            test_verification_note
         ]
 
         draft = ApplicationDraft(

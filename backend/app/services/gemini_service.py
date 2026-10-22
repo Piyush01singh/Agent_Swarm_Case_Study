@@ -110,30 +110,22 @@ class GeminiService:
                     "error": err_str
                 }
 
+    check_connection = validate_connection
 
     async def search_grounded_discovery(self, query: str, context_prompt: str) -> Dict[str, Any]:
         """
         Executes a Google Search grounded query using Gemini.
         Captures discovered URLs, grounding citations, and text analysis.
-        Gracefully falls back to verified institutional registries if quota is exhausted or key is limited.
         """
         if self._is_quota_exhausted or not self.is_available:
-            from app.services.discovery_registry import get_verified_candidates_for_countries
-            detected_country = "Canada"
-            for c in ["Canada", "Germany", "Singapore"]:
-                if c.lower() in query.lower() or c.lower() in context_prompt.lower():
-                    detected_country = c
-                    break
-            candidates_raw = get_verified_candidates_for_countries([detected_country])
-            sources = [{"title": c["title"], "url": c["url"]} for c in candidates_raw]
             return {
-                "success": True,
-                "text": f"Grounded discovery of official university degree and scholarship portals in {detected_country}.",
-                "candidates": [c["raw_data"] for c in candidates_raw],
-                "sources": sources,
-                "citations": sources,
+                "success": False,
+                "error": "GEMINI_API_KEY is not configured or quota is exhausted.",
+                "candidates": [],
+                "sources": [],
+                "citations": [],
                 "search_queries": [query],
-                "model_used": f"{self.model} (Verified Official Registry)"
+                "model_used": self.model
             }
         
         prompt = f"""You are an elite academic scholarship researcher.
@@ -218,36 +210,19 @@ Provide:
             }
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
+            if is_quota:
                 self._is_quota_exhausted = True
-            # If rate-limited, quota exhausted (429), or unavailable, gracefully fall back to verified official discovery
-            try:
-                from app.services.discovery_registry import get_verified_candidates_for_countries
-                detected_country = "Canada"
-                for c in ["Canada", "Germany", "Singapore"]:
-                    if c.lower() in query.lower() or c.lower() in context_prompt.lower():
-                        detected_country = c
-                        break
-                candidates_raw = get_verified_candidates_for_countries([detected_country])
-                sources = [{"title": c["title"], "url": c["url"]} for c in candidates_raw]
-                return {
-                    "success": True,
-                    "text": f"Grounded discovery of official university degree and scholarship portals in {detected_country}.",
-                    "candidates": [c["raw_data"] for c in candidates_raw],
-                    "sources": sources,
-                    "citations": sources,
-                    "search_queries": [query],
-                    "model_used": f"{self.model} (Verified Official Registry Fallback)"
-                }
-            except Exception:
-                return {
-                    "success": False,
-                    "error": f"Gemini Search Grounding error: {err_str}",
-                    "candidates": [],
-                    "sources": [],
-                    "citations": [],
-                    "model_used": self.model
-                }
+            return {
+                "success": False,
+                "error": f"Gemini Search Grounding error: {err_str}",
+                "status": "QUOTA_EXHAUSTED" if is_quota else "ERROR",
+                "candidates": [],
+                "sources": [],
+                "citations": [],
+                "search_queries": [query],
+                "model_used": self.model
+            }
 
     async def analyze_url_and_extract_criteria(
         self,
@@ -262,28 +237,14 @@ Provide:
         Falls back to verified official criteria if quota is exhausted.
         """
         if self._is_quota_exhausted or not self.is_available:
-            from app.services.discovery_registry import get_criteria_for_url_or_program
-            extracted_data = get_criteria_for_url_or_program(urls, program_name, university)
-            if extracted_data:
-                return {
-                    "success": True,
-                    "data": extracted_data,
-                    "retrieval_metadata": [
-                        {"retrieved_url": u, "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS", "is_success": True}
-                        for u in urls
-                    ],
-                    "url_retrieval_statuses": {u: "URL_RETRIEVAL_STATUS_SUCCESS" for u in urls},
-                    "is_retrieval_successful": True,
-                    "retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS",
-                    "evidence_quality": "OFFICIAL",
-                    "model_used": f"{self.model} (Verified Official Criteria)"
-                }
+            err_msg = "QUOTA_EXHAUSTED" if self._is_quota_exhausted else "GEMINI_API_KEY is not configured."
             return {
                 "success": False,
-                "error": "GEMINI_API_KEY is not configured.",
+                "error": err_msg,
+                "status": "QUOTA_EXHAUSTED" if self._is_quota_exhausted else "NOT_CONFIGURED",
                 "data": None,
                 "retrieval_metadata": [],
-                "url_retrieval_statuses": {},
+                "url_retrieval_statuses": {u: "URL_RETRIEVAL_STATUS_ERROR" for u in urls},
                 "is_retrieval_successful": False,
                 "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
                 "evidence_quality": "UNVERIFIED"
@@ -433,34 +394,16 @@ Return JSON in this format:
             }
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
+            if is_quota:
                 self._is_quota_exhausted = True
-            try:
-                from app.services.discovery_registry import get_criteria_for_url_or_program
-                extracted_data = get_criteria_for_url_or_program(urls, program_name, university)
-                if extracted_data:
-                    return {
-                        "success": True,
-                        "data": extracted_data,
-                        "retrieval_metadata": [
-                            {"retrieved_url": u, "url_retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS", "is_success": True}
-                            for u in urls
-                        ],
-                        "url_retrieval_statuses": {u: "URL_RETRIEVAL_STATUS_SUCCESS" for u in urls},
-                        "is_retrieval_successful": True,
-                        "retrieval_status": "URL_RETRIEVAL_STATUS_SUCCESS",
-                        "evidence_quality": "OFFICIAL",
-                        "model_used": f"{self.model} (Verified Official Criteria Fallback)"
-                    }
-            except Exception:
-                pass
-
             return {
                 "success": False,
                 "error": f"URL analysis error: {err_str}",
+                "status": "QUOTA_EXHAUSTED" if is_quota else "ERROR",
                 "data": None,
                 "retrieval_metadata": [],
-                "url_retrieval_statuses": {},
+                "url_retrieval_statuses": {u: "URL_RETRIEVAL_STATUS_ERROR" for u in urls},
                 "is_retrieval_successful": False,
                 "retrieval_status": "URL_RETRIEVAL_STATUS_ERROR",
                 "evidence_quality": "UNVERIFIED"
@@ -540,13 +483,22 @@ Return JSON in this format:
         and ensures evidence satisfies criteria.
         """
         if self._is_quota_exhausted or not self.is_available:
+            err_code = "QUOTA_EXHAUSTED" if self._is_quota_exhausted else "GEMINI_NOT_AVAILABLE"
             return {
-                "success": True,
+                "success": False,
+                "error": err_code,
+                "approved": False,
                 "data": {
-                    "approved": True,
-                    "confidence_rating": "HIGH",
-                    "issues_detected": [],
-                    "reviewer_notes": "Official university sources and evidence verified."
+                    "approved": False,
+                    "confidence_rating": "LOW",
+                    "issues_detected": [
+                        {
+                            "criterion": "Quality Review Audit",
+                            "issue": f"Quality review unresolved ({err_code}).",
+                            "recommendation": "Review manually or retry when Gemini API quota is refreshed."
+                        }
+                    ],
+                    "reviewer_notes": f"Quality review unreviewed / unresolved ({err_code})."
                 }
             }
             
@@ -593,17 +545,34 @@ Return JSON in this format:
             return {"success": True, "data": data}
         except Exception as e:
             err_str = str(e)
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            is_quota = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower()
+            if is_quota:
                 self._is_quota_exhausted = True
                 return {
-                    "success": True,
+                    "success": False,
+                    "error": "QUOTA_EXHAUSTED",
+                    "approved": False,
                     "data": {
-                        "approved": True,
-                        "confidence_rating": "HIGH",
-                        "issues_detected": [],
-                        "reviewer_notes": "Official university sources and evidence verified."
+                        "approved": False,
+                        "confidence_rating": "LOW",
+                        "issues_detected": [
+                            {
+                                "criterion": "Quality Review Audit",
+                                "issue": "Quality review unresolved (QUOTA_EXHAUSTED).",
+                                "recommendation": "Review manually or retry when Gemini API quota is refreshed."
+                            }
+                        ],
+                        "reviewer_notes": "Quality review unreviewed / unresolved (QUOTA_EXHAUSTED)."
                     }
                 }
-            return {"success": False, "error": f"Review error: {err_str}"}
+            return {
+                "success": False,
+                "error": f"Review error: {err_str}",
+                "approved": False,
+                "data": None
+            }
+
+    # API naming compatibility alias
+    review_opportunity_claims = review_evidence_and_claims
 
 gemini_service = GeminiService()

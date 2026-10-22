@@ -90,6 +90,9 @@ ScholarSwarm uses **exactly five named agent roles** executing specific responsi
 | **4. Application Coach Agent** | Synthesizes verified student projects and skills with official program focus to produce an editable Statement of Purpose (SOP) without inventing accomplishments. | Selected opportunity & profile | `ApplicationDraft` with unconfirmed flags | AI (Constrained LLM Prompt) |
 | **5. Quality Reviewer Agent** | Independently audits evidence citations, flags secondary sources, detects ambiguous deadlines, and triggers targeted re-research loops. | Scored opportunities & evidence | Review status, audit issues, retry trigger | AI + Deterministic Rule Auditing |
 
+> **Note on Agent 4 (Application Coach) Execution Model**:
+> Agent 4 operates as an **on-demand application specialist** invoked selectively via the REST endpoint `POST /api/opportunities/{id}/sop` when the student chooses a specific matched opportunity from their top recommendations. It does not run as an autonomous looping node inside the core LangGraph research discovery loop (`Profile Intelligence -> Research Discovery -> Match Strategist -> Quality Reviewer`). This intentional architectural separation eliminates speculative LLM token consumption and latency overhead across unranked or rejected candidates.
+
 ---
 
 ## 4. Deterministic Code vs. AI Components

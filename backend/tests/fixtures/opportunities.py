@@ -559,7 +559,8 @@ def get_mock_url_analysis_response(url: str) -> Dict[str, Any]:
                     "student_value": "Meets criteria",
                     "status": "MEETS",
                     "evidence_excerpt": req.get("requirement_text", ""),
-                    "source_url": matched["canonical_url"]
+                    "source_url": matched["canonical_url"],
+                    "official_equivalency_note": req.get("official_equivalency_note")
                 }
                 for req in matched.get("admission_requirements", [])
             ],
@@ -570,7 +571,8 @@ def get_mock_url_analysis_response(url: str) -> Dict[str, Any]:
                     "student_value": "Meets scholarship criteria",
                     "status": "MEETS",
                     "evidence_excerpt": req.get("requirement_text", ""),
-                    "source_url": matched["canonical_url"]
+                    "source_url": matched["canonical_url"],
+                    "official_equivalency_note": req.get("official_equivalency_note")
                 }
                 for req in matched.get("scholarship_requirements", [])
             ]
